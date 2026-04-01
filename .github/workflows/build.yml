@@ -33,6 +33,7 @@ jobs:
           go-version: "1.22"
       - name: Build
         env:
+          CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: go build -o ct-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/ct
