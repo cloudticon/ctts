@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    labels:
+        app: static-app
+    name: static-app
+    namespace: default
+spec:
+    replicas: 2
+    selector:
+        matchLabels:
+            app: static-app
+    template:
+        metadata:
+            labels:
+                app: static-app
+        spec:
+            containers:
+                - image: nginx:latest
+                  name: static-app
+                  ports:
+                    - containerPort: 80

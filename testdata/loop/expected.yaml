@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    labels:
+        app: worker-email
+    name: worker-email
+    namespace: default
+spec:
+    replicas: 2
+    selector:
+        matchLabels:
+            app: worker-email
+    template:
+        metadata:
+            labels:
+                app: worker-email
+        spec:
+            containers:
+                - image: worker:1.0
+                  name: worker-email
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    labels:
+        app: worker-pdf
+    name: worker-pdf
+    namespace: default
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: worker-pdf
+    template:
+        metadata:
+            labels:
+                app: worker-pdf
+        spec:
+            containers:
+                - image: worker:1.0
+                  name: worker-pdf
