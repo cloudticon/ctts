@@ -14,6 +14,14 @@
 
 ## Install
 
+One-line install (Linux/macOS):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cloudticon/ctts/master/install.sh | sudo sh
+```
+
+Via `go install`:
+
 ```bash
 go install github.com/cloudticon/ctts/cmd/ct@latest
 ```
