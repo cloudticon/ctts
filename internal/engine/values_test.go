@@ -23,7 +23,7 @@ export default {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	values, err := engine.LoadValues(tr, valuesFile, nil)
 	require.NoError(t, err)
 
@@ -45,7 +45,7 @@ export default {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	values, err := engine.LoadValues(tr, valuesFile, nil)
 	require.NoError(t, err)
 
@@ -65,7 +65,7 @@ export default {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	values, err := engine.LoadValues(tr, valuesFile, []string{
 		"replicas=5",
 		"image=nginx:1.26",
@@ -89,7 +89,7 @@ export default {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	values, err := engine.LoadValues(tr, valuesFile, []string{
 		"app.port=9090",
 	})
@@ -111,7 +111,7 @@ export default {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	values, err := engine.LoadValues(tr, valuesFile, []string{
 		"debug=true",
 		"verbose=false",
@@ -128,7 +128,7 @@ func TestLoadValues_SetOverrideCreatesNestedPath(t *testing.T) {
 	err := os.WriteFile(valuesFile, []byte(`export default {};`), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	values, err := engine.LoadValues(tr, valuesFile, []string{
 		"a.b.c=hello",
 	})
@@ -145,7 +145,7 @@ func TestLoadValues_InvalidSetFormat(t *testing.T) {
 	err := os.WriteFile(valuesFile, []byte(`export default {};`), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	_, err = engine.LoadValues(tr, valuesFile, []string{"invalid"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid --set format")
@@ -164,7 +164,7 @@ export default {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	values, err := engine.LoadValues(tr, valuesFile, nil)
 	require.NoError(t, err)
 
@@ -177,7 +177,7 @@ export default {
 }
 
 func TestLoadValues_InvalidFile(t *testing.T) {
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	_, err := engine.LoadValues(tr, "/nonexistent/values.ts", nil)
 	assert.Error(t, err)
 }

@@ -11,9 +11,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// stdlibCtTs uses embedded stdlib imports so CLI tests don't trigger git cloning.
+const stdlibCtTs = `import { deployment } from "ctts/k8s/apps/v1";
+import { service } from "ctts/k8s/core/v1";
+
+const app = deployment({
+  name: "web-app",
+  image: Values.image,
+  replicas: Values.replicas,
+  ports: [{ containerPort: 8080 }],
+});
+
+service({
+  name: "web-app-svc",
+  selector: { app: app.metadata.name },
+  ports: [{ port: 80, targetPort: 8080 }],
+});
+`
+
+func initWithStdlibImports(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, scaffold.InitWith(dir, scaffold.NopPackageSyncer()))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ct.ts"), []byte(stdlibCtTs), 0o644))
+}
+
 func TestSyncCmd_SyncsExistingProject(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "proj")
-	require.NoError(t, scaffold.Init(dir))
+	initWithStdlibImports(t, dir)
 
 	require.NoError(t, os.Remove(filepath.Join(dir, ".ctts", "types", "values.d.ts")))
 
@@ -35,7 +59,7 @@ func TestSyncCmd_DefaultDir(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	t.Cleanup(func() { os.Chdir(origDir) })
 
-	require.NoError(t, scaffold.Init("ct"))
+	initWithStdlibImports(t, "ct")
 
 	cmd := newSyncCmd()
 	cmd.SetArgs([]string{})

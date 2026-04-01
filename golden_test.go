@@ -21,7 +21,7 @@ func runPipeline(t *testing.T, dir, namespace string) string {
 	entryPoint := filepath.Join(dir, "ct.ts")
 	valuesPath := filepath.Join(dir, "values.ts")
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 
 	var values map[string]interface{}
 	if _, err := os.Stat(valuesPath); err == nil {

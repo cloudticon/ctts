@@ -26,7 +26,7 @@ deployment({
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -80,7 +80,7 @@ service({
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -118,7 +118,7 @@ if (Values.enableIngress) {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ for (const w of Values.workers) {
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -201,7 +201,7 @@ resource({
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -235,7 +235,7 @@ configMap({
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -277,7 +277,7 @@ deployment({
 `), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 
 	values, err := engine.LoadValues(tr, valuesFile, []string{"replicas=10"})
 	require.NoError(t, err)

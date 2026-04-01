@@ -14,7 +14,24 @@ import (
 func setupProject(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "ct")
-	require.NoError(t, scaffold.Init(dir))
+	require.NoError(t, scaffold.InitWith(dir, scaffold.NopPackageSyncer()))
+	ctTs := `import { deployment } from "ctts/k8s/apps/v1";
+import { service } from "ctts/k8s/core/v1";
+
+const app = deployment({
+  name: "web-app",
+  image: Values.image,
+  replicas: Values.replicas,
+  ports: [{ containerPort: 8080 }],
+});
+
+service({
+  name: "web-app-svc",
+  selector: { app: app.metadata.name },
+  ports: [{ port: 80, targetPort: 8080 }],
+});
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ct.ts"), []byte(ctTs), 0o644))
 	return dir
 }
 

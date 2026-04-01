@@ -3,11 +3,18 @@ package cli
 import (
 	"fmt"
 
+	"github.com/cloudticon/ctts/internal/packages"
 	"github.com/cloudticon/ctts/internal/scaffold"
 	"github.com/spf13/cobra"
 )
 
+type syncOpts struct {
+	update []string
+}
+
 func newSyncCmd() *cobra.Command {
+	var opts syncOpts
+
 	cmd := &cobra.Command{
 		Use:   "sync [dir]",
 		Short: "Regenerate types from values.ts and update stdlib types",
@@ -18,6 +25,14 @@ func newSyncCmd() *cobra.Command {
 			if len(args) > 0 {
 				dir = args[0]
 			}
+
+			if cmd.Flags().Changed("update") {
+				if err := packages.UpdatePackages(dir, opts.update); err != nil {
+					return fmt.Errorf("update packages failed: %w", err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Updated packages in %s/\n", dir)
+			}
+
 			if err := scaffold.Sync(dir); err != nil {
 				return fmt.Errorf("sync failed: %w", err)
 			}
@@ -25,6 +40,9 @@ func newSyncCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringArrayVar(&opts.update, "update", nil, "update package(s) to latest ref (e.g. --update github.com/owner/repo)")
+
 	return cmd
 }
 

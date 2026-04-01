@@ -4,17 +4,25 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"path/filepath"
 	"strings"
 
+	"github.com/cloudticon/ctts/internal/packages"
 	"github.com/evanw/esbuild/pkg/api"
 )
 
 type Transpiler struct {
-	stdlib fs.FS
+	stdlib     fs.FS
+	projectDir string
 }
 
-func NewTranspiler(stdlib fs.FS) *Transpiler {
-	return &Transpiler{stdlib: stdlib}
+func NewTranspiler(stdlib fs.FS, projectDir string) *Transpiler {
+	if projectDir != "" {
+		if abs, err := filepath.Abs(projectDir); err == nil {
+			projectDir = abs
+		}
+	}
+	return &Transpiler{stdlib: stdlib, projectDir: projectDir}
 }
 
 func (t *Transpiler) Bundle(entryPoint string) (string, error) {
@@ -99,20 +107,40 @@ func (t *Transpiler) cttsResolverPlugin() api.Plugin {
 					}, nil
 				})
 
-			build.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "ctts"},
-				func(args api.OnLoadArgs) (api.OnLoadResult, error) {
-					fsPath := path.Join("stdlib", args.Path)
-					data, err := fs.ReadFile(t.stdlib, fsPath)
-					if err != nil {
-						return api.OnLoadResult{}, fmt.Errorf("stdlib file not found: %s", fsPath)
-					}
-					contents := string(data)
-					return api.OnLoadResult{
-						Contents:   &contents,
-						Loader:     api.LoaderTS,
-						ResolveDir: path.Dir(args.Path),
+		build.OnResolve(api.OnResolveOptions{Filter: `^[a-zA-Z0-9]`},
+			func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+				if strings.HasPrefix(args.Path, "ctts/") {
+					return api.OnResolveResult{}, nil
+				}
+				if !packages.IsGitPackage(args.Path) {
+					return api.OnResolveResult{}, nil
+				}
+				pkgName, subPath := packages.SplitPackagePath(args.Path)
+				pkgDir := filepath.Join(t.projectDir, ".ctts", "packages", pkgName)
+				if subPath != "" {
+					return api.OnResolveResult{
+						Path: filepath.Join(pkgDir, subPath+".ts"),
 					}, nil
-				})
-		},
-	}
+				}
+				return api.OnResolveResult{
+					Path: filepath.Join(pkgDir, "index.ts"),
+				}, nil
+			})
+
+		build.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "ctts"},
+			func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+				fsPath := path.Join("stdlib", args.Path)
+				data, err := fs.ReadFile(t.stdlib, fsPath)
+				if err != nil {
+					return api.OnLoadResult{}, fmt.Errorf("stdlib file not found: %s", fsPath)
+				}
+				contents := string(data)
+				return api.OnLoadResult{
+					Contents:   &contents,
+					Loader:     api.LoaderTS,
+					ResolveDir: path.Dir(args.Path),
+				}, nil
+			})
+	},
+}
 }

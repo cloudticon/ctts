@@ -17,7 +17,7 @@ func TestBundle_SimpleTS(t *testing.T) {
 	err := os.WriteFile(entry, []byte(`console.log(42 as number);`), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 	assert.Contains(t, js, "42")
@@ -37,7 +37,7 @@ const app = deployment({
 	err := os.WriteFile(entry, []byte(code), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -62,7 +62,7 @@ resource({
 	err := os.WriteFile(entry, []byte(code), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -87,7 +87,7 @@ resourceClusterScope({
 	err := os.WriteFile(entry, []byte(code), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -101,7 +101,7 @@ func TestBundle_InvalidTS(t *testing.T) {
 	err := os.WriteFile(entry, []byte(`this is not valid { typescript`), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	_, err = tr.Bundle(entry)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "esbuild")
@@ -113,7 +113,7 @@ func TestBundle_IIFEFormat(t *testing.T) {
 	err := os.WriteFile(entry, []byte(`const x = 1;`), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -143,7 +143,7 @@ ingress({
 	err := os.WriteFile(entry, []byte(code), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 
@@ -158,7 +158,7 @@ func TestBundleValues_ExportsGlobalName(t *testing.T) {
 	err := os.WriteFile(entry, []byte(`export default { key: "val" };`), 0644)
 	require.NoError(t, err)
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	tr := engine.NewTranspiler(k8s.Stdlib, "")
 	js, err := tr.BundleValues(entry)
 	require.NoError(t, err)
 	assert.Contains(t, js, "__values_export")

@@ -8,6 +8,7 @@ import (
 	"github.com/cloudticon/ctts/internal/engine"
 	"github.com/cloudticon/ctts/internal/k8s"
 	"github.com/cloudticon/ctts/internal/output"
+	"github.com/cloudticon/ctts/internal/packages"
 	"github.com/spf13/cobra"
 )
 
@@ -54,7 +55,11 @@ func runTemplate(cmd *cobra.Command, dir string, opts templateOpts) error {
 		return fmt.Errorf(".ctts/ directory not found in %s — run 'ct init' first", dir)
 	}
 
-	tr := engine.NewTranspiler(k8s.Stdlib)
+	if err := packages.SyncPackages(dir); err != nil {
+		return fmt.Errorf("auto-installing packages: %w", err)
+	}
+
+	tr := engine.NewTranspiler(k8s.Stdlib, dir)
 
 	valuesPath := resolveValuesPath(dir, opts.valuesFile)
 	values, err := loadValuesIfPresent(tr, valuesPath, opts.setValues)
