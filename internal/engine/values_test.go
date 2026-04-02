@@ -6,47 +6,54 @@ import (
 	"testing"
 
 	"github.com/cloudticon/ctts/internal/engine"
-	"github.com/cloudticon/ctts/internal/k8s"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoadValues_BasicExport(t *testing.T) {
+func TestLoadValuesFile_JSON(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`
-export default {
-  image: "nginx:1.25",
-  replicas: 3,
-  debug: false,
-};
-`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{
+  "image": "nginx:1.25",
+  "replicas": 3,
+  "debug": false
+}`), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	values, err := engine.LoadValues(tr, valuesFile, nil)
+	values, err := engine.LoadValuesFile(f, nil)
 	require.NoError(t, err)
-
 	assert.Equal(t, "nginx:1.25", values["image"])
 	assert.Equal(t, int64(3), values["replicas"])
 	assert.Equal(t, false, values["debug"])
 }
 
-func TestLoadValues_NestedObject(t *testing.T) {
+func TestLoadValuesFile_YAML(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`
-export default {
-  app: {
-    name: "web",
-    port: 8080,
-  },
-};
-`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.yaml")
+	require.NoError(t, os.WriteFile(f, []byte("image: nginx:1.25\nreplicas: 3\ndebug: false\n"), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	values, err := engine.LoadValues(tr, valuesFile, nil)
+	values, err := engine.LoadValuesFile(f, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "nginx:1.25", values["image"])
+	assert.Equal(t, int64(3), values["replicas"])
+	assert.Equal(t, false, values["debug"])
+}
+
+func TestLoadValuesFile_YML(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "values.yml")
+	require.NoError(t, os.WriteFile(f, []byte("key: value\n"), 0644))
+
+	values, err := engine.LoadValuesFile(f, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "value", values["key"])
+}
+
+func TestLoadValuesFile_Nested(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{"app": {"name": "web", "port": 8080}}`), 0644))
+
+	values, err := engine.LoadValuesFile(f, nil)
 	require.NoError(t, err)
 
 	app := values["app"].(map[string]interface{})
@@ -54,45 +61,23 @@ export default {
 	assert.Equal(t, int64(8080), app["port"])
 }
 
-func TestLoadValues_WithSetOverrides(t *testing.T) {
+func TestLoadValuesFile_WithSetOverrides(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`
-export default {
-  image: "nginx:1.25",
-  replicas: 3,
-};
-`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{"image": "nginx:1.25", "replicas": 3}`), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	values, err := engine.LoadValues(tr, valuesFile, []string{
-		"replicas=5",
-		"image=nginx:1.26",
-	})
+	values, err := engine.LoadValuesFile(f, []string{"replicas=5", "image=nginx:1.26"})
 	require.NoError(t, err)
-
 	assert.Equal(t, int64(5), values["replicas"])
 	assert.Equal(t, "nginx:1.26", values["image"])
 }
 
-func TestLoadValues_SetOverrideNested(t *testing.T) {
+func TestLoadValuesFile_SetOverrideNested(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`
-export default {
-  app: {
-    name: "web",
-    port: 8080,
-  },
-};
-`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{"app": {"name": "web", "port": 8080}}`), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	values, err := engine.LoadValues(tr, valuesFile, []string{
-		"app.port=9090",
-	})
+	values, err := engine.LoadValuesFile(f, []string{"app.port=9090"})
 	require.NoError(t, err)
 
 	app := values["app"].(map[string]interface{})
@@ -100,38 +85,23 @@ export default {
 	assert.Equal(t, "web", app["name"])
 }
 
-func TestLoadValues_SetOverrideBooleans(t *testing.T) {
+func TestLoadValuesFile_SetOverrideBooleans(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`
-export default {
-  debug: false,
-  verbose: true,
-};
-`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{"debug": false, "verbose": true}`), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	values, err := engine.LoadValues(tr, valuesFile, []string{
-		"debug=true",
-		"verbose=false",
-	})
+	values, err := engine.LoadValuesFile(f, []string{"debug=true", "verbose=false"})
 	require.NoError(t, err)
-
 	assert.Equal(t, true, values["debug"])
 	assert.Equal(t, false, values["verbose"])
 }
 
-func TestLoadValues_SetOverrideCreatesNestedPath(t *testing.T) {
+func TestLoadValuesFile_SetCreatesNestedPath(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`export default {};`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{}`), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	values, err := engine.LoadValues(tr, valuesFile, []string{
-		"a.b.c=hello",
-	})
+	values, err := engine.LoadValuesFile(f, []string{"a.b.c=hello"})
 	require.NoError(t, err)
 
 	a := values["a"].(map[string]interface{})
@@ -139,45 +109,58 @@ func TestLoadValues_SetOverrideCreatesNestedPath(t *testing.T) {
 	assert.Equal(t, "hello", b["c"])
 }
 
-func TestLoadValues_InvalidSetFormat(t *testing.T) {
+func TestLoadValuesFile_InvalidSetFormat(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`export default {};`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{}`), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	_, err = engine.LoadValues(tr, valuesFile, []string{"invalid"})
+	_, err := engine.LoadValuesFile(f, []string{"invalid"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid --set format")
 }
 
-func TestLoadValues_WithArray(t *testing.T) {
+func TestLoadValuesFile_WithArray(t *testing.T) {
 	dir := t.TempDir()
-	valuesFile := filepath.Join(dir, "values.ts")
-	err := os.WriteFile(valuesFile, []byte(`
-export default {
-  workers: [
-    { name: "email", replicas: 2 },
-    { name: "pdf", replicas: 1 },
-  ],
-};
-`), 0644)
-	require.NoError(t, err)
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{
+  "workers": [
+    {"name": "email", "replicas": 2},
+    {"name": "pdf", "replicas": 1}
+  ]
+}`), 0644))
 
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	values, err := engine.LoadValues(tr, valuesFile, nil)
+	values, err := engine.LoadValuesFile(f, nil)
 	require.NoError(t, err)
 
 	workers := values["workers"].([]interface{})
-	assert.Len(t, workers, 2)
+	require.Len(t, workers, 2)
 
 	w0 := workers[0].(map[string]interface{})
 	assert.Equal(t, "email", w0["name"])
 	assert.Equal(t, int64(2), w0["replicas"])
 }
 
-func TestLoadValues_InvalidFile(t *testing.T) {
-	tr := engine.NewTranspiler(k8s.Stdlib, "")
-	_, err := engine.LoadValues(tr, "/nonexistent/values.ts", nil)
+func TestLoadValuesFile_FileNotFound(t *testing.T) {
+	_, err := engine.LoadValuesFile("/nonexistent/values.json", nil)
 	assert.Error(t, err)
+}
+
+func TestLoadValuesFile_UnsupportedFormat(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "values.txt")
+	require.NoError(t, os.WriteFile(f, []byte(`key=value`), 0644))
+
+	_, err := engine.LoadValuesFile(f, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported")
+}
+
+func TestLoadValuesFile_FloatPreserved(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "values.json")
+	require.NoError(t, os.WriteFile(f, []byte(`{"ratio": 0.75}`), 0644))
+
+	values, err := engine.LoadValuesFile(f, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0.75, values["ratio"])
 }

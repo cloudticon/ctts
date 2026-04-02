@@ -1,16 +1,18 @@
-# ct — Kubernetes manifests from TypeScript
+# ct — Kubernetes manifests from code
 
-`ct` generates Kubernetes YAML/JSON manifests from TypeScript definitions. Write real code (loops, conditionals, cross-references) instead of templating languages.
+`ct` generates Kubernetes YAML/JSON manifests from `.ct` definitions. Write real code (loops, conditionals, cross-references) instead of templating languages.
 
 ## Features
 
-- **TypeScript** — full language power: variables, loops, conditionals, type safety
+- **TypeScript syntax** — full language power: variables, loops, conditionals, type safety
 - **Registration model** — each helper call (`deployment()`, `service()`, …) registers a resource and returns it for cross-references
-- **IDE autocomplete** — generated `tsconfig.json` + `.d.ts` types work in any IDE with TypeScript support
-- **Values** — typed `values.ts` with `--set` overrides, like Helm
+- **URL imports** — packages resolved directly from URLs, no local config needed
+- **Values** — `values.json` or `values.yaml` with `--set` overrides, like Helm
+- **Multi-env** — separate values files per environment (ArgoCD-style)
 - **Low-level API** — `resource()` / `resourceClusterScope()` for CRDs and any K8s object
 - **High-level helpers** — `deployment`, `service`, `configMap`, `secret`, `ingress`, `statefulSet`, `daemonSet`, `namespace`
 - **Zero dependencies for users** — single Go binary, no Node.js required
+- **Zero config** — no `tsconfig.json`, no generated directories, just your code and values
 
 ## Install
 
@@ -37,23 +39,20 @@ go build -o ct ./cmd/ct
 ## Quick start
 
 ```bash
-# Initialize a project
+# Initialize a project in the current directory
 ct init
 
-# Edit ct/ct.ts and ct/values.ts, then render:
-ct template ct/ --namespace production
+# Edit main.ct and values.json, then render:
+ct template . --namespace production
 
 # JSON output
-ct template ct/ --namespace production --output json
+ct template . --namespace production --output json
 
 # Override values
-ct template ct/ --namespace production --set replicas=5
+ct template . --namespace production --set replicas=5
 
-# Custom values file
-ct template ct/ --namespace staging --values other-values.ts
-
-# After editing values.ts, regenerate types for IDE autocomplete:
-ct sync ct/
+# Explicit values file (useful for multi-env)
+ct template . --namespace staging --values values-staging.json
 ```
 
 ## Project structure
@@ -61,21 +60,28 @@ ct sync ct/
 After `ct init`, you get:
 
 ```
-ct/
-  ct.ts              # your manifest definitions
-  values.ts          # configurable values
-  tsconfig.json      # IDE paths mapping (generated)
-  .ctts/
-    types/
-      k8s/           # stdlib type definitions
-      values.d.ts    # typed Values (generated from values.ts)
+myproject/
+  main.ct         # manifest definitions (TypeScript syntax)
+  values.json     # configurable values
 ```
 
-## Example: ct.ts
+That's it — no generated directories, no config files.
+
+**Multi-env project (ArgoCD):**
+
+```
+myproject/
+  main.ct              # code
+  values.json          # default values
+  values-prod.json     # production overrides
+  values-staging.yaml  # staging (YAML also supported)
+```
+
+## Example: main.ct
 
 ```typescript
-import { deployment } from "ctts/k8s/apps/v1";
-import { service } from "ctts/k8s/core/v1";
+import { deployment } from "https://github.com/cloudticon/k8s@master";
+import { service } from "https://github.com/cloudticon/k8s@master";
 
 const app = deployment({
   name: "web-app",
@@ -92,19 +98,28 @@ service({
 });
 ```
 
-## Example: values.ts
+## Example: values.json
 
-```typescript
-export default {
-  image: "nginx:1.25",
-  replicas: 3,
-};
+```json
+{
+  "image": "nginx:1.25",
+  "replicas": 3
+}
+```
+
+Values can also be YAML:
+
+```yaml
+# values.yaml
+image: nginx:1.25
+replicas: 3
+domain: app.example.com
 ```
 
 ## Output
 
 ```bash
-$ ct template ct/ --namespace production
+$ ct template . --namespace production
 ```
 
 ```yaml
@@ -147,8 +162,8 @@ spec:
 ## Conditional resources
 
 ```typescript
-import { deployment } from "ctts/k8s/apps/v1";
-import { ingress } from "ctts/k8s/networking/v1";
+import { deployment } from "https://github.com/cloudticon/k8s@master";
+import { ingress } from "https://github.com/cloudticon/k8s@master";
 
 deployment({ name: "api", image: Values.image });
 
@@ -164,7 +179,7 @@ if (Values.enableIngress) {
 ## Loops
 
 ```typescript
-import { deployment } from "ctts/k8s/apps/v1";
+import { deployment } from "https://github.com/cloudticon/k8s@master";
 
 for (const worker of Values.workers) {
   deployment({
@@ -178,7 +193,7 @@ for (const worker of Values.workers) {
 ## Low-level API (CRDs)
 
 ```typescript
-import { resource } from "ctts/k8s/resource";
+import { resource } from "https://github.com/cloudticon/k8s@master";
 
 resource({
   apiVersion: "redis.redis.opstreelabs.in/v1beta2",
@@ -194,8 +209,7 @@ resource({
 ## Cluster-scoped resources
 
 ```typescript
-import { resourceClusterScope } from "ctts/k8s/resource";
-import { namespace } from "ctts/k8s/core/v1";
+import { resourceClusterScope, namespace } from "https://github.com/cloudticon/k8s@master";
 
 namespace({ name: "production" });
 
@@ -209,35 +223,58 @@ resourceClusterScope({
 
 ## Available helpers
 
-| Import | Functions |
-|--------|-----------|
-| `ctts/k8s/apps/v1` | `deployment`, `statefulSet`, `daemonSet` |
-| `ctts/k8s/core/v1` | `service`, `configMap`, `secret`, `namespace` |
-| `ctts/k8s/networking/v1` | `ingress` |
-| `ctts/k8s/resource` | `resource`, `resourceClusterScope` |
+| Function | Description |
+|----------|-------------|
+| `deployment` | Deployment (apps/v1) |
+| `statefulSet` | StatefulSet (apps/v1) |
+| `daemonSet` | DaemonSet (apps/v1) |
+| `service` | Service (core/v1) |
+| `configMap` | ConfigMap (core/v1) |
+| `secret` | Secret (core/v1) |
+| `namespace` | Namespace (core/v1) |
+| `ingress` | Ingress (networking/v1) |
+| `resource` | Any namespaced K8s resource (CRDs) |
+| `resourceClusterScope` | Any cluster-scoped K8s resource |
+
+All helpers are imported from `https://github.com/cloudticon/k8s@<version>`.
+
+## URL imports
+
+Packages are referenced directly via URL in import statements:
+
+```typescript
+import { deployment } from "https://github.com/cloudticon/k8s@master";
+```
+
+URL format: `https://github.com/{owner}/{repo}@{version}`
+
+- `{version}` is a git tag or branch name
+- Packages are downloaded on first use and cached in `~/.ct/cache/`
+- Subsequent runs work offline from cache
 
 ## CLI reference
 
 ```
 ct init [flags]
-  -d, --dir string   project directory name (default "ct")
-
-ct sync [dir]
-  Regenerate stdlib types and values.d.ts (default dir: "ct")
+  -d, --dir string   project directory (default ".")
 
 ct template <dir> [flags]
   -n, --namespace string   default namespace for resources
-  -f, --values string      path to values.ts (overrides auto-detect)
+  -f, --values string      path to values file (JSON or YAML, overrides auto-detect)
   -o, --output string      output format: yaml or json (default "yaml")
       --set stringArray    override values (e.g. --set replicas=5)
 ```
 
+`ct template` auto-detects values files in order: `values.json`, `values.yaml`, `values.yml`. Use `--values` to override.
+
 ## How it works
 
-1. **esbuild** bundles `ct.ts` + stdlib into a single IIFE JS file
-2. **Goja** (pure Go JS engine) executes the bundle — each helper call pushes a resource to a global registry
-3. **Post-processing** applies default namespace (from `--namespace`), skips cluster-scoped resources, removes nil fields
-4. **Serializer** outputs YAML or JSON
+1. **esbuild** bundles `main.ct` + URL-imported packages into a single IIFE JS file
+2. URL imports are resolved from `~/.ct/cache/` (downloaded on first use via `git clone`)
+3. **Goja** (pure Go JS engine) executes the bundle — each helper call pushes a resource to a global registry
+4. `Values` object is injected as a global from the loaded JSON/YAML values file
+5. **Post-processing** applies default namespace (from `--namespace`), skips cluster-scoped resources, removes nil fields
+6. **Serializer** outputs YAML or JSON
 
 No Node.js runtime needed — everything runs inside the Go binary.
 
@@ -246,9 +283,6 @@ No Node.js runtime needed — everything runs inside the Go binary.
 ```bash
 # Run all tests
 go test ./...
-
-# Update golden files
-go test -run TestGolden -update
 
 # Build
 go build -o ct ./cmd/ct

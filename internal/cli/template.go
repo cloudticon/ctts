@@ -6,9 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/cloudticon/ctts/internal/engine"
-	"github.com/cloudticon/ctts/internal/k8s"
 	"github.com/cloudticon/ctts/internal/output"
-	"github.com/cloudticon/ctts/internal/packages"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +23,7 @@ func newTemplateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "template <dir>",
 		Short: "Render Kubernetes manifests from a ct project",
-		Long:  "Bundles and executes ct.ts from the given directory, producing Kubernetes manifests on stdout.",
+		Long:  "Bundles and executes main.ct from the given directory, producing Kubernetes manifests on stdout.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTemplate(cmd, args[0], opts)
@@ -33,7 +31,7 @@ func newTemplateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&opts.namespace, "namespace", "n", "", "default namespace for resources")
-	cmd.Flags().StringVarP(&opts.valuesFile, "values", "f", "", "path to values.ts (overrides auto-detect)")
+	cmd.Flags().StringVarP(&opts.valuesFile, "values", "f", "", "path to values file (JSON or YAML, overrides auto-detect)")
 	cmd.Flags().StringVarP(&opts.outputFmt, "output", "o", "yaml", "output format: yaml or json")
 	cmd.Flags().StringArrayVar(&opts.setValues, "set", nil, "override values (e.g. --set replicas=5)")
 
@@ -45,24 +43,15 @@ func init() {
 }
 
 func runTemplate(cmd *cobra.Command, dir string, opts templateOpts) error {
-	entryPoint := filepath.Join(dir, "ct.ts")
+	entryPoint := filepath.Join(dir, "main.ct")
 	if _, err := os.Stat(entryPoint); os.IsNotExist(err) {
 		return fmt.Errorf("entry point not found: %s", entryPoint)
 	}
 
-	cttsDir := filepath.Join(dir, ".ctts")
-	if _, err := os.Stat(cttsDir); os.IsNotExist(err) {
-		return fmt.Errorf(".ctts/ directory not found in %s — run 'ct init' first", dir)
-	}
-
-	if err := packages.SyncPackages(dir); err != nil {
-		return fmt.Errorf("auto-installing packages: %w", err)
-	}
-
-	tr := engine.NewTranspiler(k8s.Stdlib, dir)
+	tr := engine.NewTranspiler(dir)
 
 	valuesPath := resolveValuesPath(dir, opts.valuesFile)
-	values, err := loadValuesIfPresent(tr, valuesPath, opts.setValues)
+	values, err := loadValuesIfPresent(valuesPath, opts.setValues)
 	if err != nil {
 		return err
 	}
@@ -94,21 +83,24 @@ func resolveValuesPath(dir, explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	candidate := filepath.Join(dir, "values.ts")
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
+	candidates := []string{"values.json", "values.yaml", "values.yml"}
+	for _, name := range candidates {
+		path := filepath.Join(dir, name)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
 	}
 	return ""
 }
 
-func loadValuesIfPresent(tr *engine.Transpiler, valuesPath string, setOverrides []string) (map[string]interface{}, error) {
+func loadValuesIfPresent(valuesPath string, setOverrides []string) (map[string]interface{}, error) {
 	if valuesPath == "" && len(setOverrides) == 0 {
 		return nil, nil
 	}
 	if valuesPath == "" {
 		return nil, fmt.Errorf("--set provided but no values file found")
 	}
-	values, err := engine.LoadValues(tr, valuesPath, setOverrides)
+	values, err := engine.LoadValuesFile(valuesPath, setOverrides)
 	if err != nil {
 		return nil, fmt.Errorf("loading values from %s: %w", valuesPath, err)
 	}

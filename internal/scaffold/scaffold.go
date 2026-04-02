@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 )
 
-const ctTsTemplate = `import { deployment } from "github.com/cloudticon/k8s/apps/v1";
-import { service } from "github.com/cloudticon/k8s/core/v1";
+const mainCtTemplate = `import { deployment } from "https://github.com/cloudticon/k8s@master";
+import { service } from "https://github.com/cloudticon/k8s@master";
 
 const app = deployment({
   name: "web-app",
@@ -23,58 +23,29 @@ service({
 });
 `
 
-const valuesTsTemplate = `export default {
-  image: "nginx:1.25",
-  replicas: 3,
-};
-`
-
-const tsconfigTemplate = `{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ES2020",
-    "moduleResolution": "node",
-    "strict": true,
-    "noEmit": true,
-    "baseUrl": ".",
-    "paths": {
-      "ctts/*": [".ctts/types/*"]
-    }
-  },
-  "include": ["*.ts", ".ctts/types/**/*.ts", ".ctts/types/**/*.d.ts"]
+const valuesJsonTemplate = `{
+  "image": "nginx:1.25",
+  "replicas": 3
 }
 `
 
-const gitignoreTemplate = `.ctts/packages/
-`
-
-// Init creates the project folder structure with starter files, then delegates
-// to Sync to copy stdlib types and generate values.d.ts.
 func Init(dir string) error {
-	return InitWith(dir, realPackageSyncer{})
-}
-
-// InitWith is like Init but accepts a custom PackageSyncer, allowing tests to
-// skip real git operations.
-func InitWith(dir string, pkgSyncer PackageSyncer) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating project directory %s: %w", dir, err)
 	}
 
-	starterFiles := []struct {
+	files := []struct {
 		path    string
 		content string
 	}{
-		{filepath.Join(dir, "ct.ts"), ctTsTemplate},
-		{filepath.Join(dir, "values.ts"), valuesTsTemplate},
-		{filepath.Join(dir, "tsconfig.json"), tsconfigTemplate},
-		{filepath.Join(dir, ".gitignore"), gitignoreTemplate},
+		{filepath.Join(dir, "main.ct"), mainCtTemplate},
+		{filepath.Join(dir, "values.json"), valuesJsonTemplate},
 	}
-	for _, f := range starterFiles {
+	for _, f := range files {
 		if err := os.WriteFile(f.path, []byte(f.content), 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", f.path, err)
 		}
 	}
 
-	return SyncWith(dir, pkgSyncer)
+	return nil
 }

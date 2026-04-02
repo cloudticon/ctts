@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+func IsURLImport(importPath string) bool {
+	return strings.HasPrefix(importPath, "https://")
+}
+
 type Import struct {
 	Path string
 }

@@ -12,8 +12,8 @@ func newInitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize a new ct project directory",
-		Long:  "Creates a project folder with ct.ts, values.ts, tsconfig.json and stdlib type definitions for IDE autocomplete.",
+		Short: "Initialize a new ct project",
+		Long:  "Creates main.ct and values.json in the target directory.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := scaffold.Init(dir); err != nil {
 				return fmt.Errorf("init failed: %w", err)
@@ -23,7 +23,7 @@ func newInitCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", "ct", "project directory name")
+	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "project directory")
 	return cmd
 }
 

@@ -1,54 +1,75 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/dop251/goja"
+	"gopkg.in/yaml.v3"
 )
 
-func LoadValues(transpiler *Transpiler, valuesPath string, setOverrides []string) (map[string]interface{}, error) {
-	jsCode, err := transpiler.BundleValues(valuesPath)
+func LoadValuesFile(path string, setOverrides []string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to transpile values: %w", err)
+		return nil, fmt.Errorf("reading values file %s: %w", path, err)
 	}
 
-	values, err := executeValuesJS(jsCode)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute values: %w", err)
+	var values map[string]interface{}
+
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".json":
+		if err := json.Unmarshal(data, &values); err != nil {
+			return nil, fmt.Errorf("parsing JSON values from %s: %w", path, err)
+		}
+	case ".yaml", ".yml":
+		if err := yaml.Unmarshal(data, &values); err != nil {
+			return nil, fmt.Errorf("parsing YAML values from %s: %w", path, err)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported values file format: %s (expected .json, .yaml, or .yml)", ext)
 	}
+
+	normalizeNumbers(values)
 
 	if err := applySetOverrides(values, setOverrides); err != nil {
-		return nil, fmt.Errorf("failed to apply --set overrides: %w", err)
+		return nil, fmt.Errorf("applying --set overrides: %w", err)
 	}
 
 	return values, nil
 }
 
-func executeValuesJS(jsCode string) (map[string]interface{}, error) {
-	vm := goja.New()
-
-	if _, err := vm.RunString(jsCode); err != nil {
-		return nil, fmt.Errorf("values JS execution error: %w", err)
+// normalizeNumbers converts float64 whole numbers (from JSON) and int (from YAML)
+// to int64 for consistent downstream behavior.
+func normalizeNumbers(m map[string]interface{}) {
+	for k, v := range m {
+		m[k] = normalizeValue(v)
 	}
+}
 
-	val := vm.GlobalObject().Get("__values_export")
-	if val == nil || goja.IsUndefined(val) {
-		return nil, fmt.Errorf("values export not found")
-	}
-
-	obj := val.ToObject(vm)
-	defaultExport := obj.Get("default")
-	if defaultExport != nil && !goja.IsUndefined(defaultExport) {
-		exported := defaultExport.Export()
-		if m, ok := exported.(map[string]interface{}); ok {
-			return m, nil
+func normalizeValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case float64:
+		if val == float64(int64(val)) {
+			return int64(val)
 		}
-		return nil, fmt.Errorf("default export is not an object, got %T", defaultExport.Export())
+		return val
+	case int:
+		return int64(val)
+	case map[string]interface{}:
+		normalizeNumbers(val)
+		return val
+	case []interface{}:
+		for i, item := range val {
+			val[i] = normalizeValue(item)
+		}
+		return val
+	default:
+		return val
 	}
-
-	return nil, fmt.Errorf("values file has no default export")
 }
 
 func applySetOverrides(values map[string]interface{}, overrides []string) error {

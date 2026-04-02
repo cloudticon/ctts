@@ -12,7 +12,7 @@ import (
 
 func TestInitCmd_CreatesProjectStructure(t *testing.T) {
 	dir := t.TempDir()
-	projectDir := filepath.Join(dir, "myct")
+	projectDir := filepath.Join(dir, "myproject")
 
 	cmd := newInitCmd()
 	cmd.SetArgs([]string{"--dir", projectDir})
@@ -23,13 +23,8 @@ func TestInitCmd_CreatesProjectStructure(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, buf.String(), "Initialized ct project")
-
-	assert.FileExists(t, filepath.Join(projectDir, "ct.ts"))
-	assert.FileExists(t, filepath.Join(projectDir, "values.ts"))
-	assert.FileExists(t, filepath.Join(projectDir, "tsconfig.json"))
-	assert.DirExists(t, filepath.Join(projectDir, ".ctts", "types"))
-	assert.FileExists(t, filepath.Join(projectDir, ".ctts", "types", "values.d.ts"))
-	assert.FileExists(t, filepath.Join(projectDir, ".ctts", "types", "k8s", "resource.ts"))
+	assert.FileExists(t, filepath.Join(projectDir, "main.ct"))
+	assert.FileExists(t, filepath.Join(projectDir, "values.json"))
 }
 
 func TestInitCmd_DefaultDir(t *testing.T) {
@@ -46,5 +41,6 @@ func TestInitCmd_DefaultDir(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	assert.FileExists(t, filepath.Join(tmpDir, "ct", "ct.ts"))
+	assert.FileExists(t, filepath.Join(tmpDir, "main.ct"))
+	assert.FileExists(t, filepath.Join(tmpDir, "values.json"))
 }

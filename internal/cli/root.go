@@ -6,8 +6,8 @@ var version = "dev"
 
 var rootCmd = &cobra.Command{
 	Use:   "ct",
-	Short: "ct - Kubernetes manifest generator from TypeScript",
-	Long:  "ct generates Kubernetes manifests from TypeScript definitions using a registration model.",
+	Short: "ct - Kubernetes manifest generator",
+	Long:  "ct generates Kubernetes manifests from .ct definitions using a registration model.",
 }
 
 func init() {

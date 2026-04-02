@@ -229,6 +229,26 @@ func TestSplitPackagePath_DeepSubpath(t *testing.T) {
 	assert.Equal(t, "a/b/c/d", sub)
 }
 
+func TestIsURLImport(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"https://github.com/cloudticon/k8s@4.17.21", true},
+		{"https://gitlab.com/org/lib@v1.0.0", true},
+		{"http://github.com/owner/repo@v1", false},
+		{"github.com/owner/repo", false},
+		{"ctts/k8s/apps/v1", false},
+		{"./lib/helpers", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			assert.Equal(t, tt.want, packages.IsURLImport(tt.path))
+		})
+	}
+}
+
 func TestPackageToGitURL(t *testing.T) {
 	tests := []struct {
 		pkg  string
