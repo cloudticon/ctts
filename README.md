@@ -19,20 +19,20 @@
 One-line install (Linux/macOS):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cloudticon/ctts/master/install.sh | sudo sh
+curl -fsSL https://raw.githubusercontent.com/cloudticon/ct/master/install.sh | sudo sh
 ```
 
 Via `go install`:
 
 ```bash
-go install github.com/cloudticon/ctts/cmd/ct@latest
+go install github.com/cloudticon/ct/cmd/ct@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/cloudticon/ctts.git
-cd ctts
+git clone https://github.com/cloudticon/ct.git
+cd ct
 go build -o ct ./cmd/ct
 ```
 
@@ -126,37 +126,37 @@ $ ct template . --namespace production
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-    labels:
-        app: web-app
-    name: web-app
-    namespace: production
+  labels:
+    app: web-app
+  name: web-app
+  namespace: production
 spec:
-    replicas: 3
-    selector:
-        matchLabels:
-            app: web-app
-    template:
-        metadata:
-            labels:
-                app: web-app
-        spec:
-            containers:
-                - image: nginx:1.25
-                  name: web-app
-                  ports:
-                    - containerPort: 8080
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+    spec:
+      containers:
+        - image: nginx:1.25
+          name: web-app
+          ports:
+            - containerPort: 8080
 ---
 apiVersion: v1
 kind: Service
 metadata:
-    name: web-app-svc
-    namespace: production
+  name: web-app-svc
+  namespace: production
 spec:
-    ports:
-        - port: 80
-          targetPort: 8080
-    selector:
-        app: web-app
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: web-app
 ```
 
 ## Conditional resources
@@ -209,7 +209,10 @@ resource({
 ## Cluster-scoped resources
 
 ```typescript
-import { resourceClusterScope, namespace } from "https://github.com/cloudticon/k8s@master";
+import {
+  resourceClusterScope,
+  namespace,
+} from "https://github.com/cloudticon/k8s@master";
 
 namespace({ name: "production" });
 
@@ -223,18 +226,18 @@ resourceClusterScope({
 
 ## Available helpers
 
-| Function | Description |
-|----------|-------------|
-| `deployment` | Deployment (apps/v1) |
-| `statefulSet` | StatefulSet (apps/v1) |
-| `daemonSet` | DaemonSet (apps/v1) |
-| `service` | Service (core/v1) |
-| `configMap` | ConfigMap (core/v1) |
-| `secret` | Secret (core/v1) |
-| `namespace` | Namespace (core/v1) |
-| `ingress` | Ingress (networking/v1) |
-| `resource` | Any namespaced K8s resource (CRDs) |
-| `resourceClusterScope` | Any cluster-scoped K8s resource |
+| Function               | Description                        |
+| ---------------------- | ---------------------------------- |
+| `deployment`           | Deployment (apps/v1)               |
+| `statefulSet`          | StatefulSet (apps/v1)              |
+| `daemonSet`            | DaemonSet (apps/v1)                |
+| `service`              | Service (core/v1)                  |
+| `configMap`            | ConfigMap (core/v1)                |
+| `secret`               | Secret (core/v1)                   |
+| `namespace`            | Namespace (core/v1)                |
+| `ingress`              | Ingress (networking/v1)            |
+| `resource`             | Any namespaced K8s resource (CRDs) |
+| `resourceClusterScope` | Any cluster-scoped K8s resource    |
 
 All helpers are imported from `https://github.com/cloudticon/k8s@<version>`.
 

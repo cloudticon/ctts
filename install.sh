@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-REPO="cloudticon/ctts"
+REPO="cloudticon/ct"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="ct"
 
