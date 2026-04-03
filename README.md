@@ -11,6 +11,8 @@
 - **Multi-env** — separate values files per environment (ArgoCD-style)
 - **Low-level API** — `resource()` / `resourceClusterScope()` for CRDs and any K8s object
 - **High-level helpers** — `deployment`, `service`, `configMap`, `secret`, `ingress`, `statefulSet`, `daemonSet`, `namespace`
+- **IDE support** — `ct types` generates `.d.ts` files for autocomplete and type checking
+- **Embeddable engine** — public Go API in `pkg/` for building tools on top of ct
 - **Zero dependencies for users** — single Go binary, no Node.js required
 - **Zero config** — no `tsconfig.json`, no generated directories, just your code and values
 
@@ -55,7 +57,7 @@ ct template . --namespace production --set replicas=5
 ct template . --namespace staging --values values-staging.json
 ```
 
-## Project structure
+## User project layout
 
 After `ct init`, you get:
 
@@ -255,6 +257,32 @@ URL format: `https://github.com/{owner}/{repo}@{version}`
 - Packages are downloaded on first use and cached in `~/.ct/cache/`
 - Subsequent runs work offline from cache
 
+## IDE support — `ct types`
+
+Generate TypeScript type definitions for IDE autocomplete and type checking:
+
+```bash
+# Generate types for the current project
+ct types .
+
+# Custom output directory
+ct types . --output ./types
+
+# Include operator globals (getStatus, setStatus, fetch, log, Env)
+ct types . --operator
+```
+
+Generated files:
+
+| File           | Contents                                               |
+| -------------- | ------------------------------------------------------ |
+| `values.d.ts`  | `CtValues` interface inferred from `values.json`/YAML  |
+| `globals.d.ts` | `declare const Values: CtValues` + operator globals    |
+
+The command also resolves and caches URL imports so IDE resolution works offline.
+
+Output directory defaults to `~/.ct/types/<project-hash>`. The path is printed to stdout so tools (e.g. VS Code extension) can consume it.
+
 ## CLI reference
 
 ```
@@ -266,6 +294,10 @@ ct template <dir> [flags]
   -f, --values string      path to values file (JSON or YAML, overrides auto-detect)
   -o, --output string      output format: yaml or json (default "yaml")
       --set stringArray    override values (e.g. --set replicas=5)
+
+ct types [dir] [flags]
+      --output string      output directory (default ~/.ct/types/<project-hash>)
+      --operator           include operator globals (getStatus, setStatus, fetch, log, Env)
 ```
 
 `ct template` auto-detects values files in order: `values.json`, `values.yaml`, `values.yml`. Use `--values` to override.
@@ -274,12 +306,67 @@ ct template <dir> [flags]
 
 1. **esbuild** bundles `main.ct` + URL-imported packages into a single IIFE JS file
 2. URL imports are resolved from `~/.ct/cache/` (downloaded on first use via `git clone`)
-3. **Goja** (pure Go JS engine) executes the bundle — each helper call pushes a resource to a global registry
-4. `Values` object is injected as a global from the loaded JSON/YAML values file
-5. **Post-processing** applies default namespace (from `--namespace`), skips cluster-scoped resources, removes nil fields
-6. **Serializer** outputs YAML or JSON
+3. An esbuild plugin rejects `async`/`await` at bundle time — the Goja runtime is synchronous
+4. **Goja** (pure Go JS engine) executes the bundle — each helper call pushes a resource to a global registry
+5. `Values` object is injected as a global from the loaded JSON/YAML values file
+6. **Post-processing** applies default namespace (from `--namespace`), skips cluster-scoped resources, removes nil fields
+7. **Serializer** outputs YAML or JSON
 
 No Node.js runtime needed — everything runs inside the Go binary.
+
+## Using ct as a Go library
+
+The engine, cache, and package resolver are exported as public Go packages under `pkg/`:
+
+```go
+import (
+    "github.com/cloudticon/ctts/pkg/engine"
+    "github.com/cloudticon/ctts/pkg/cache"
+    "github.com/cloudticon/ctts/pkg/packages"
+)
+```
+
+### Engine — bundle and execute
+
+```go
+transpiler := engine.NewTranspiler("/path/to/project")
+jsCode, err := transpiler.Bundle("main.ct")
+
+values, err := engine.LoadValuesFile("values.json", []string{"replicas=5"})
+
+resources, err := engine.Execute(engine.ExecuteOpts{
+    JSCode:    jsCode,
+    Values:    values,
+    Namespace: "production",
+})
+```
+
+### Cache — resolve URL imports to local paths
+
+```go
+localDir, err := cache.Resolve("https://github.com/cloudticon/k8s@master")
+```
+
+### Packages — parse imports and sync dependencies
+
+```go
+imports, err := packages.ParseImports("main.ct")
+err = packages.SyncPackages("/path/to/project")
+```
+
+## Source layout
+
+```
+cmd/ct/              CLI entry point
+internal/
+  cli/               commands: init, template, types
+  output/            YAML/JSON serializer
+  scaffold/          ct init scaffolding
+pkg/
+  engine/            transpiler (esbuild) + runtime (Goja) + values loader
+  cache/             URL import → local cache resolver
+  packages/          git client, import parser, dependency sync
+```
 
 ## Development
 

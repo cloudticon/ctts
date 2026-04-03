@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cloudticon/ctts/internal/packages"
+	"github.com/cloudticon/ctts/pkg/packages"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

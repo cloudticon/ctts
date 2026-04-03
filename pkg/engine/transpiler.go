@@ -1,13 +1,15 @@
 package engine
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
-	"github.com/cloudticon/ctts/internal/cache"
-	"github.com/cloudticon/ctts/internal/packages"
+	"github.com/cloudticon/ctts/pkg/cache"
+	"github.com/cloudticon/ctts/pkg/packages"
 	"github.com/evanw/esbuild/pkg/api"
 )
 
@@ -35,7 +37,7 @@ func (t *Transpiler) Bundle(entryPoint string) (string, error) {
 			".ts": api.LoaderTS,
 			".ct": api.LoaderTS,
 		},
-		Plugins: []api.Plugin{t.urlResolverPlugin()},
+		Plugins: []api.Plugin{t.asyncDetectPlugin(), t.urlResolverPlugin()},
 	})
 
 	if len(result.Errors) > 0 {
@@ -51,6 +53,35 @@ func (t *Transpiler) Bundle(entryPoint string) (string, error) {
 	}
 
 	return string(result.OutputFiles[0].Contents), nil
+}
+
+var asyncAwaitRe = regexp.MustCompile(`\b(async|await)\b`)
+
+func (t *Transpiler) asyncDetectPlugin() api.Plugin {
+	return api.Plugin{
+		Name: "async-detect",
+		Setup: func(build api.PluginBuild) {
+			build.OnLoad(api.OnLoadOptions{Filter: `\.(ct|ts)$`},
+				func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+					data, err := os.ReadFile(args.Path)
+					if err != nil {
+						return api.OnLoadResult{}, nil
+					}
+
+					loc := asyncAwaitRe.FindIndex(data)
+					if loc == nil {
+						return api.OnLoadResult{}, nil
+					}
+
+					line := 1 + bytes.Count(data[:loc[0]], []byte("\n"))
+					keyword := string(data[loc[0]:loc[1]])
+					return api.OnLoadResult{}, fmt.Errorf(
+						"async/await is not supported ('%s' at line %d in %s); Goja runtime is synchronous, use sync alternatives",
+						keyword, line, filepath.Base(args.Path),
+					)
+				})
+		},
+	}
 }
 
 func (t *Transpiler) urlResolverPlugin() api.Plugin {

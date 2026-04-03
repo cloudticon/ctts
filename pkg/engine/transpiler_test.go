@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cloudticon/ctts/internal/engine"
+	"github.com/cloudticon/ctts/pkg/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -254,6 +254,73 @@ console.log(util);
 	js, err := tr.Bundle(entry)
 	require.NoError(t, err)
 	assert.Contains(t, js, "ct-index")
+}
+
+func TestBundle_RejectsAsyncFunction(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "main.ct")
+	err := os.WriteFile(entry, []byte("async function fetchData() {\n  return \"data\";\n}\n"), 0644)
+	require.NoError(t, err)
+
+	tr := engine.NewTranspiler("")
+	_, err = tr.Bundle(entry)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "async")
+	assert.Contains(t, err.Error(), "line 1")
+}
+
+func TestBundle_RejectsAwait(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "main.ct")
+	err := os.WriteFile(entry, []byte("const x = 1;\nconst data = await fetch(\"http://example.com\");\n"), 0644)
+	require.NoError(t, err)
+
+	tr := engine.NewTranspiler("")
+	_, err = tr.Bundle(entry)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "await")
+	assert.Contains(t, err.Error(), "line 2")
+}
+
+func TestBundle_RejectsAsyncArrow(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "main.ct")
+	err := os.WriteFile(entry, []byte("const fn = async () => {};\n"), 0644)
+	require.NoError(t, err)
+
+	tr := engine.NewTranspiler("")
+	_, err = tr.Bundle(entry)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "async")
+}
+
+func TestBundle_AllowsSyncCode(t *testing.T) {
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "main.ct")
+	err := os.WriteFile(entry, []byte("const data = \"synchronous code\";\nconsole.log(data);\n"), 0644)
+	require.NoError(t, err)
+
+	tr := engine.NewTranspiler("")
+	js, err := tr.Bundle(entry)
+	assert.NoError(t, err)
+	assert.Contains(t, js, "synchronous")
+}
+
+func TestBundle_RejectsAsyncInImportedFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "helper.ts"),
+		[]byte("export async function load() { return 1; }\n"),
+		0644,
+	))
+	entry := filepath.Join(dir, "main.ct")
+	require.NoError(t, os.WriteFile(entry, []byte("import { load } from \"./helper\";\nload();\n"), 0644))
+
+	tr := engine.NewTranspiler("")
+	_, err := tr.Bundle(entry)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "async")
+	assert.Contains(t, err.Error(), "helper.ts")
 }
 
 func TestBundle_TsPreferedOverCt(t *testing.T) {
