@@ -16,18 +16,22 @@ type PackageRef struct {
 	Version string
 }
 
-var packageURLRegex = regexp.MustCompile(`^https://([^/]+)/([^/]+)/([^/@]+)@(.+)$`)
+var packageURLRegex = regexp.MustCompile(`^https://([^/]+)/([^/]+)/([^/@]+)(?:@(.+))?$`)
 
 func ParsePackageURL(rawURL string) (*PackageRef, error) {
 	m := packageURLRegex.FindStringSubmatch(rawURL)
 	if m == nil {
-		return nil, fmt.Errorf("invalid package URL: %s (expected https://host/owner/repo@version)", rawURL)
+		return nil, fmt.Errorf("invalid package URL: %s (expected https://host/owner/repo[@version])", rawURL)
 	}
 	return &PackageRef{Host: m[1], Owner: m[2], Repo: m[3], Version: m[4]}, nil
 }
 
 func (r *PackageRef) CacheKey() string {
-	return filepath.Join(r.Host, r.Owner, r.Repo+"@"+r.Version)
+	version := r.Version
+	if version == "" {
+		version = "_default"
+	}
+	return filepath.Join(r.Host, r.Owner, r.Repo+"@"+version)
 }
 
 func (r *PackageRef) GitURL() string {
@@ -76,11 +80,15 @@ func download(ref *PackageRef, destDir string) error {
 	defer os.RemoveAll(tmpDir)
 
 	gitURL := ref.GitURL()
-	tag := ref.Version
 
-	args := []string{"clone", "--depth", "1", "--branch", tag, gitURL, tmpDir}
+	args := []string{"clone", "--depth", "1"}
+	if ref.Version != "" {
+		args = append(args, "--branch", ref.Version)
+	}
+	args = append(args, gitURL, tmpDir)
+
 	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("git clone %s@%s: %s: %w", gitURL, tag, strings.TrimSpace(string(out)), err)
+		return fmt.Errorf("git clone %s: %s: %w", gitURL, strings.TrimSpace(string(out)), err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(destDir), 0o755); err != nil {

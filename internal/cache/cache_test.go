@@ -51,10 +51,42 @@ func TestParsePackageURL_Valid(t *testing.T) {
 	}
 }
 
+func TestParsePackageURL_NoVersion(t *testing.T) {
+	tests := []struct {
+		url   string
+		host  string
+		owner string
+		repo  string
+	}{
+		{
+			url:   "https://github.com/cloudticon/k8s",
+			host:  "github.com",
+			owner: "cloudticon",
+			repo:  "k8s",
+		},
+		{
+			url:   "https://gitlab.com/org/lib",
+			host:  "gitlab.com",
+			owner: "org",
+			repo:  "lib",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			ref, err := cache.ParsePackageURL(tt.url)
+			require.NoError(t, err)
+			assert.Equal(t, tt.host, ref.Host)
+			assert.Equal(t, tt.owner, ref.Owner)
+			assert.Equal(t, tt.repo, ref.Repo)
+			assert.Equal(t, "", ref.Version)
+		})
+	}
+}
+
 func TestParsePackageURL_Invalid(t *testing.T) {
 	tests := []string{
 		"github.com/owner/repo",
-		"https://github.com/owner/repo",
 		"https://github.com/owner",
 		"http://github.com/owner/repo@v1",
 		"",
@@ -74,6 +106,13 @@ func TestPackageRef_CacheKey(t *testing.T) {
 		Host: "github.com", Owner: "cloudticon", Repo: "k8s", Version: "4.17.21",
 	}
 	assert.Equal(t, "github.com/cloudticon/k8s@4.17.21", ref.CacheKey())
+}
+
+func TestPackageRef_CacheKey_DefaultVersion(t *testing.T) {
+	ref := &cache.PackageRef{
+		Host: "github.com", Owner: "cloudticon", Repo: "k8s", Version: "",
+	}
+	assert.Equal(t, "github.com/cloudticon/k8s@_default", ref.CacheKey())
 }
 
 func TestPackageRef_GitURL(t *testing.T) {

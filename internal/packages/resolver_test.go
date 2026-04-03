@@ -223,6 +223,29 @@ func TestSplitPackagePath_BitbucketOrg(t *testing.T) {
 	assert.Equal(t, "lib/utils", sub)
 }
 
+func TestSplitPackageVersion(t *testing.T) {
+	tests := []struct {
+		input       string
+		wantPkg     string
+		wantVersion string
+	}{
+		{"github.com/owner/repo@v1.0.0", "github.com/owner/repo", "v1.0.0"},
+		{"github.com/owner/repo@master", "github.com/owner/repo", "master"},
+		{"github.com/owner/repo", "github.com/owner/repo", ""},
+		{"custom.dev/mylib@0.1.0-beta", "custom.dev/mylib", "0.1.0-beta"},
+		{"custom.dev/mylib", "custom.dev/mylib", ""},
+		{"repo@tag", "repo", "tag"},
+		{"repo", "repo", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			pkg, version := packages.SplitPackageVersion(tt.input)
+			assert.Equal(t, tt.wantPkg, pkg)
+			assert.Equal(t, tt.wantVersion, version)
+		})
+	}
+}
+
 func TestSplitPackagePath_DeepSubpath(t *testing.T) {
 	pkg, sub := packages.SplitPackagePath("github.com/owner/repo/a/b/c/d")
 	assert.Equal(t, "github.com/owner/repo", pkg)

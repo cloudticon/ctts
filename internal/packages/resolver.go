@@ -54,6 +54,11 @@ func SplitPackagePath(importPath string) (pkgName, subPath string) {
 	return strings.Join(parts[:n], "/"), strings.Join(parts[n:], "/")
 }
 
+func SplitPackageVersion(pkgName string) (pkg, version string) {
+	pkg, version, _ = strings.Cut(pkgName, "@")
+	return
+}
+
 func PackageToGitURL(pkgName string) string {
 	return "https://" + pkgName + ".git"
 }
