@@ -9,7 +9,7 @@
 - **URL imports** — packages resolved directly from URLs, no local config needed
 - **Values** — `values.json` or `values.yaml` with `--set` overrides, like Helm
 - **Multi-env** — separate values files per environment (ArgoCD-style)
-- **Low-level API** — `resource()` / `resourceClusterScope()` for CRDs and any K8s object
+- **Custom resources** — `resource()` factory for CRDs and any K8s object, with optional schema
 - **High-level helpers** — `deployment`, `service`, `configMap`, `secret`, `ingress`, `statefulSet`, `daemonSet`, `namespace`
 - **IDE support** — `ct types` generates `.d.ts` files for autocomplete and type checking
 - **Embeddable engine** — public Go API in `pkg/` for building tools on top of ct
@@ -82,8 +82,8 @@ myproject/
 ## Example: main.ct
 
 ```typescript
-import { deployment } from "https://github.com/cloudticon/k8s@master";
-import { service } from "https://github.com/cloudticon/k8s@master";
+import { deployment } from "github.com/cloudticon/k8s@master";
+import { service } from "github.com/cloudticon/k8s@master";
 
 const app = deployment({
   name: "web-app",
@@ -164,8 +164,8 @@ spec:
 ## Conditional resources
 
 ```typescript
-import { deployment } from "https://github.com/cloudticon/k8s@master";
-import { ingress } from "https://github.com/cloudticon/k8s@master";
+import { deployment } from "github.com/cloudticon/k8s@master";
+import { ingress } from "github.com/cloudticon/k8s@master";
 
 deployment({ name: "api", image: Values.image });
 
@@ -181,7 +181,7 @@ if (Values.enableIngress) {
 ## Loops
 
 ```typescript
-import { deployment } from "https://github.com/cloudticon/k8s@master";
+import { deployment } from "github.com/cloudticon/k8s@master";
 
 for (const worker of Values.workers) {
   deployment({
@@ -192,66 +192,71 @@ for (const worker of Values.workers) {
 }
 ```
 
-## Low-level API (CRDs)
+## Custom resources (CRDs)
+
+Use `resource()` to define your own typed resource factory:
 
 ```typescript
-import { resource } from "https://github.com/cloudticon/k8s@master";
+import { resource, z } from "github.com/cloudticon/k8s@master";
 
-resource({
-  apiVersion: "redis.redis.opstreelabs.in/v1beta2",
-  kind: "Redis",
-  metadata: { name: "my-redis" },
+const redis = resource("redis.redis.opstreelabs.in/v1beta2", "Redis", {
   spec: {
-    kubernetesConfig: { image: "redis:7.2" },
-    redisExporter: { enabled: true },
+    image: z.string(),
+    exporter: z.boolean().optional(),
   },
+});
+
+redis({
+  name: "my-redis",
+  image: "redis:7.2",
+  exporter: true,
 });
 ```
 
-## Cluster-scoped resources
+For cluster-scoped resources, set `scope`:
 
 ```typescript
-import {
-  resourceClusterScope,
-  namespace,
-} from "https://github.com/cloudticon/k8s@master";
+import { resource, z } from "github.com/cloudticon/k8s@master";
 
-namespace({ name: "production" });
+const clusterPolicy = resource("kyverno.io/v1", "ClusterPolicy", {
+  scope: "Cluster",
+  spec: {
+    validationFailureAction: z.enum(["Enforce", "Audit"]),
+  },
+});
 
-resourceClusterScope({
-  apiVersion: "kyverno.io/v1",
-  kind: "ClusterPolicy",
-  metadata: { name: "require-labels" },
-  spec: { validationFailureAction: "Enforce" },
+clusterPolicy({
+  name: "require-labels",
+  validationFailureAction: "Enforce",
 });
 ```
 
 ## Available helpers
 
-| Function               | Description                        |
-| ---------------------- | ---------------------------------- |
-| `deployment`           | Deployment (apps/v1)               |
-| `statefulSet`          | StatefulSet (apps/v1)              |
-| `daemonSet`            | DaemonSet (apps/v1)                |
-| `service`              | Service (core/v1)                  |
-| `configMap`            | ConfigMap (core/v1)                |
-| `secret`               | Secret (core/v1)                   |
-| `namespace`            | Namespace (core/v1)                |
-| `ingress`              | Ingress (networking/v1)            |
-| `resource`             | Any namespaced K8s resource (CRDs) |
-| `resourceClusterScope` | Any cluster-scoped K8s resource    |
+| Function     | Description                                                   |
+| ------------ | ------------------------------------------------------------- |
+| `deployment` | Deployment (apps/v1)                                          |
+| `statefulSet`| StatefulSet (apps/v1)                                         |
+| `daemonSet`  | DaemonSet (apps/v1)                                           |
+| `service`    | Service (core/v1)                                             |
+| `configMap`  | ConfigMap (core/v1)                                           |
+| `secret`     | Secret (core/v1)                                              |
+| `namespace`  | Namespace (core/v1)                                           |
+| `ingress`    | Ingress (networking/v1)                                       |
+| `resource`   | Factory for custom/CRD resources (`scope: "Cluster"` option)  |
+| `z`          | Schema builder for `resource()` spec definitions              |
 
-All helpers are imported from `https://github.com/cloudticon/k8s@<version>`.
+All helpers are imported from `github.com/cloudticon/k8s@<version>`.
 
 ## URL imports
 
 Packages are referenced directly via URL in import statements:
 
 ```typescript
-import { deployment } from "https://github.com/cloudticon/k8s@master";
+import { deployment } from "github.com/cloudticon/k8s@master";
 ```
 
-URL format: `https://github.com/{owner}/{repo}@{version}`
+URL format: `github.com/{owner}/{repo}@{version}`
 
 - `{version}` is a git tag or branch name
 - Packages are downloaded on first use and cached in `~/.ct/cache/`
