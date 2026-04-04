@@ -327,6 +327,9 @@ ct apply my-app . --output yaml
 
 # Apply from GitHub source
 ct apply my-app github.com/cloudticon/my-app@v1.0 --namespace staging
+
+# Create namespace automatically when it does not exist
+ct apply my-app . --namespace development --create-namespace
 ```
 
 `ct apply` is useful when you want one command for both generation and deployment without a separate `kubectl apply`.
@@ -343,6 +346,24 @@ ct delete my-app --namespace staging --context staging
 ```
 
 `ct delete` does not require source path or repo URL. It deletes resources based on the latest saved inventory.
+
+## List releases — `ct list`
+
+List all releases tracked by ct inventory in a namespace or across all namespaces.
+
+```bash
+# List releases in current/default namespace context
+ct list
+
+# List releases in selected namespace
+ct list --namespace production
+
+# List releases from all namespaces
+ct list --all-namespaces
+
+# Structured output
+ct list --all-namespaces --output json
+```
 
 ## Development mode — `ct dev`
 
@@ -384,15 +405,23 @@ ct apply <name> <dir|repo> [flags]
   -o, --output string      output format: yaml or json (default: no output)
       --set stringArray    override values (e.g. --set replicas=5)
       --context string     kubeconfig context to use
+      --create-namespace   create namespace if it does not exist
 
 ct delete <name> [flags]
   -n, --namespace string   namespace where release inventory is stored
       --context string     kubeconfig context to use
 
+ct list [flags]
+  -n, --namespace string      namespace to search releases in
+  -A, --all-namespaces        list releases across all namespaces
+      --context string        kubeconfig context to use
+  -o, --output string         output format: table, yaml, or json (default "table")
+
 ct dev [flags]
       --env-file string    path to .env file (empty to skip) (default ".env")
       --context string     kubeconfig context
       --name string        release name used for labels/inventory (default "dev")
+      --create-namespace   create namespace automatically before apply (default true)
       --delete             delete dev resources from inventory and exit
 
 ct types [dir] [flags]

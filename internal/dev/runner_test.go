@@ -473,6 +473,61 @@ func TestNormalizeRunOpts_PreservesExplicitReleaseName(t *testing.T) {
 	assert.Equal(t, "my-dev", result.ReleaseName)
 }
 
+func TestEnsureRunNamespace_SkipsWhenDisabledOrNamespaceEmpty(t *testing.T) {
+	origEnsureNamespace := ensureNamespaceFn
+	t.Cleanup(func() {
+		ensureNamespaceFn = origEnsureNamespace
+	})
+
+	var calls int
+	ensureNamespaceFn = func(ctx context.Context, client kubeApplier, namespace string) error {
+		calls++
+		return nil
+	}
+
+	err := ensureRunNamespace(context.Background(), &k8s.Client{}, "dev", false)
+	require.NoError(t, err)
+
+	err = ensureRunNamespace(context.Background(), &k8s.Client{}, "", true)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, calls)
+}
+
+func TestEnsureRunNamespace_CallsEnsureWhenEnabled(t *testing.T) {
+	origEnsureNamespace := ensureNamespaceFn
+	t.Cleanup(func() {
+		ensureNamespaceFn = origEnsureNamespace
+	})
+
+	expectedClient := &k8s.Client{}
+	var capturedNamespace string
+	ensureNamespaceFn = func(ctx context.Context, client kubeApplier, namespace string) error {
+		assert.Same(t, expectedClient, client)
+		capturedNamespace = namespace
+		return nil
+	}
+
+	err := ensureRunNamespace(context.Background(), expectedClient, "dev", true)
+	require.NoError(t, err)
+	assert.Equal(t, "dev", capturedNamespace)
+}
+
+func TestEnsureRunNamespace_ReturnsWrappedError(t *testing.T) {
+	origEnsureNamespace := ensureNamespaceFn
+	t.Cleanup(func() {
+		ensureNamespaceFn = origEnsureNamespace
+	})
+
+	ensureNamespaceFn = func(ctx context.Context, client kubeApplier, namespace string) error {
+		return errors.New("boom")
+	}
+
+	err := ensureRunNamespace(context.Background(), &k8s.Client{}, "dev", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `ensuring namespace "dev"`)
+}
+
 func saveDevDeleteSeams(t *testing.T) {
 	t.Helper()
 	origNewK8s := newK8sClient

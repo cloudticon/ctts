@@ -39,6 +39,9 @@ func TestDevCmd_DefaultFlags(t *testing.T) {
 
 	del, _ := cmd.Flags().GetBool("delete")
 	assert.False(t, del)
+
+	createNamespace, _ := cmd.Flags().GetBool("create-namespace")
+	assert.True(t, createNamespace)
 }
 
 func TestRunDev_PassesOptionsToRunner(t *testing.T) {
@@ -69,10 +72,11 @@ func TestRunDev_PassesOptionsToRunner(t *testing.T) {
 	cmd.SetErr(stderr)
 
 	err = runDev(cmd, devOpts{
-		envFile:     ".env.dev",
-		context:     "staging",
-		releaseName: "my-dev",
-		delete:      true,
+		envFile:         ".env.dev",
+		context:         "staging",
+		releaseName:     "my-dev",
+		delete:          true,
+		createNamespace: true,
 	})
 	require.NoError(t, err)
 
@@ -83,6 +87,7 @@ func TestRunDev_PassesOptionsToRunner(t *testing.T) {
 	assert.Equal(t, "staging", captured.KubeCtx)
 	assert.Equal(t, "my-dev", captured.ReleaseName)
 	assert.True(t, captured.Delete)
+	assert.True(t, captured.CreateNamespace)
 	assert.Same(t, stdin, captured.Stdin)
 	assert.Same(t, stdout, captured.Stdout)
 	assert.Same(t, stderr, captured.Stderr)

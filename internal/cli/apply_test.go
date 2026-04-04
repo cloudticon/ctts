@@ -2,10 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/cloudticon/ctts/internal/scaffold"
+	"github.com/cloudticon/ctts/pkg/k8s"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,6 +65,9 @@ func TestApplyCmd_DefaultFlags(t *testing.T) {
 
 	noCache, _ := cmd.Flags().GetBool("no-cache")
 	assert.False(t, noCache)
+
+	createNamespace, _ := cmd.Flags().GetBool("create-namespace")
+	assert.False(t, createNamespace)
 }
 
 func TestApplyCmd_UsageShowsTwoArgs(t *testing.T) {
@@ -81,4 +88,124 @@ func TestApplyCmd_MissingMainCt_WithReleaseName(t *testing.T) {
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "entry point not found")
+}
+
+func TestEnsureApplyNamespace_SkipsWhenDisabledOrNamespaceEmpty(t *testing.T) {
+	origEnsure := ensureNamespaceForApply
+	t.Cleanup(func() {
+		ensureNamespaceForApply = origEnsure
+	})
+
+	var calls int
+	ensureNamespaceForApply = func(ctx context.Context, client *k8s.Client, namespace string) error {
+		calls++
+		return nil
+	}
+
+	err := ensureApplyNamespace(context.Background(), &k8s.Client{}, "dev", false)
+	require.NoError(t, err)
+
+	err = ensureApplyNamespace(context.Background(), &k8s.Client{}, "", true)
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, calls)
+}
+
+func TestRunApply_CreatesNamespaceWhenEnabled(t *testing.T) {
+	origResolveSourceDir := resolveSourceDirForApply
+	origRenderResources := renderResourcesForApply
+	origInjectLabels := injectReleaseLabelsForApply
+	origNewClient := newK8sClientForApply
+	origEnsureNamespace := ensureNamespaceForApply
+	origLoadInventory := loadInventoryForApply
+	origResourcesToRefs := resourcesToRefsForApply
+	origComputeOrphaned := computeOrphanedForApply
+	origApplyResources := applyResourcesForApply
+	origDeleteResources := deleteResourcesForApply
+	origSaveInventory := saveInventoryForApply
+	t.Cleanup(func() {
+		resolveSourceDirForApply = origResolveSourceDir
+		renderResourcesForApply = origRenderResources
+		injectReleaseLabelsForApply = origInjectLabels
+		newK8sClientForApply = origNewClient
+		ensureNamespaceForApply = origEnsureNamespace
+		loadInventoryForApply = origLoadInventory
+		resourcesToRefsForApply = origResourcesToRefs
+		computeOrphanedForApply = origComputeOrphaned
+		applyResourcesForApply = origApplyResources
+		deleteResourcesForApply = origDeleteResources
+		saveInventoryForApply = origSaveInventory
+	})
+
+	expectedClient := &k8s.Client{}
+	var ensuredNamespace string
+
+	resolveSourceDirForApply = func(source string, noCache bool) (string, error) {
+		return "/tmp/fake-source", nil
+	}
+	renderResourcesForApply = func(dir string, opts templateOpts) ([]k8s.Resource, error) {
+		return []k8s.Resource{
+			{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]interface{}{
+					"name":      "cfg",
+					"namespace": "dev",
+				},
+			},
+		}, nil
+	}
+	injectReleaseLabelsForApply = func(resources []k8s.Resource, releaseName string) []k8s.Resource {
+		return resources
+	}
+	newK8sClientForApply = func(kubeContext, namespace string) (*k8s.Client, error) {
+		return expectedClient, nil
+	}
+	ensureNamespaceForApply = func(ctx context.Context, client *k8s.Client, namespace string) error {
+		assert.Same(t, expectedClient, client)
+		ensuredNamespace = namespace
+		return nil
+	}
+	loadInventoryForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) ([]k8s.ResourceRef, error) {
+		return []k8s.ResourceRef{}, nil
+	}
+	resourcesToRefsForApply = func(resources []k8s.Resource) ([]k8s.ResourceRef, error) {
+		return []k8s.ResourceRef{}, nil
+	}
+	computeOrphanedForApply = func(oldRefs, newRefs []k8s.ResourceRef) []k8s.ResourceRef {
+		return nil
+	}
+	applyResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.Resource) error {
+		return nil
+	}
+	deleteResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
+		return nil
+	}
+	saveInventoryForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string, resources []k8s.Resource) error {
+		return nil
+	}
+
+	err := runApply(&cobra.Command{}, "my-release", ".", applyOpts{
+		templateOpts: templateOpts{
+			namespace: "dev",
+		},
+		createNamespace: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "dev", ensuredNamespace)
+}
+
+func TestEnsureApplyNamespace_ReturnsWrappedError(t *testing.T) {
+	origEnsure := ensureNamespaceForApply
+	t.Cleanup(func() {
+		ensureNamespaceForApply = origEnsure
+	})
+
+	ensureNamespaceForApply = func(ctx context.Context, client *k8s.Client, namespace string) error {
+		return errors.New("boom")
+	}
+
+	err := ensureApplyNamespace(context.Background(), &k8s.Client{}, "dev", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `ensuring namespace "dev"`)
 }

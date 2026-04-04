@@ -9,10 +9,11 @@ import (
 )
 
 type devOpts struct {
-	envFile     string
-	context     string
-	releaseName string
-	delete      bool
+	envFile         string
+	context         string
+	releaseName     string
+	delete          bool
+	createNamespace bool
 }
 
 var runDevMode = dev.Run
@@ -33,6 +34,7 @@ func newDevCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.context, "context", "", "kubeconfig context")
 	cmd.Flags().StringVar(&opts.releaseName, "name", "dev", "release name for inventory and labels")
 	cmd.Flags().BoolVar(&opts.delete, "delete", false, "delete resources from previous dev session")
+	cmd.Flags().BoolVar(&opts.createNamespace, "create-namespace", true, "create namespace if it does not exist")
 
 	return cmd
 }
@@ -48,14 +50,15 @@ func runDev(cmd *cobra.Command, opts devOpts) error {
 	}
 
 	if err := runDevMode(cmd.Context(), dev.RunOpts{
-		Dir:         dir,
-		EnvFile:     opts.envFile,
-		KubeCtx:     opts.context,
-		ReleaseName: opts.releaseName,
-		Delete:      opts.delete,
-		Stdin:       cmd.InOrStdin(),
-		Stdout:      cmd.OutOrStdout(),
-		Stderr:      cmd.ErrOrStderr(),
+		Dir:             dir,
+		EnvFile:         opts.envFile,
+		KubeCtx:         opts.context,
+		ReleaseName:     opts.releaseName,
+		Delete:          opts.delete,
+		CreateNamespace: opts.createNamespace,
+		Stdin:           cmd.InOrStdin(),
+		Stdout:          cmd.OutOrStdout(),
+		Stderr:          cmd.ErrOrStderr(),
 	}); err != nil {
 		return fmt.Errorf("running dev mode: %w", err)
 	}

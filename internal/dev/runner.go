@@ -18,14 +18,15 @@ import (
 )
 
 type RunOpts struct {
-	Dir         string
-	EnvFile     string
-	KubeCtx     string
-	ReleaseName string
-	Delete      bool
-	Stdin       io.Reader
-	Stdout      io.Writer
-	Stderr      io.Writer
+	Dir             string
+	EnvFile         string
+	KubeCtx         string
+	ReleaseName     string
+	Delete          bool
+	CreateNamespace bool
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
 }
 
 type kubeApplier interface {
@@ -63,6 +64,14 @@ var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[strin
 }
 
 var injectReleaseLabelsFn = k8s.InjectReleaseLabels
+
+var ensureNamespaceFn = func(ctx context.Context, client kubeApplier, namespace string) error {
+	k8sClient, ok := client.(*k8s.Client)
+	if !ok {
+		return fmt.Errorf("unsupported kubernetes client type %T for ensure namespace", client)
+	}
+	return k8s.EnsureNamespace(ctx, k8sClient, namespace)
+}
 
 var saveInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string, resources []engine.Resource) error {
 	k8sClient, ok := client.(*k8s.Client)
@@ -280,6 +289,10 @@ func Run(ctx context.Context, opts RunOpts) error {
 		return fmt.Errorf("creating k8s client: %w", err)
 	}
 
+	if err := ensureRunNamespace(ctx, client, devResult.Namespace, normalizedOpts.CreateNamespace); err != nil {
+		return err
+	}
+
 	if err := client.Apply(ctx, resources); err != nil {
 		return fmt.Errorf("applying resources: %w", err)
 	}
@@ -292,6 +305,16 @@ func Run(ctx context.Context, opts RunOpts) error {
 		return fmt.Errorf("starting dev features: %w", err)
 	}
 
+	return nil
+}
+
+func ensureRunNamespace(ctx context.Context, client kubeApplier, namespace string, createNamespace bool) error {
+	if !createNamespace || namespace == "" {
+		return nil
+	}
+	if err := ensureNamespaceFn(ctx, client, namespace); err != nil {
+		return fmt.Errorf("ensuring namespace %q: %w", namespace, err)
+	}
 	return nil
 }
 

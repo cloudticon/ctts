@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -11,8 +12,25 @@ import (
 
 type applyOpts struct {
 	templateOpts
-	context string
+	context         string
+	createNamespace bool
 }
+
+var resolveSourceDirForApply = resolveSourceDir
+var renderResourcesForApply = renderResources
+var injectReleaseLabelsForApply = k8s.InjectReleaseLabels
+var newK8sClientForApply = k8s.NewClient
+var ensureNamespaceForApply = k8s.EnsureNamespace
+var loadInventoryForApply = k8s.LoadInventory
+var resourcesToRefsForApply = k8s.ResourcesToRefs
+var computeOrphanedForApply = k8s.ComputeOrphaned
+var applyResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.Resource) error {
+	return client.Apply(ctx, resources)
+}
+var deleteResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
+	return client.Delete(ctx, resources)
+}
+var saveInventoryForApply = k8s.SaveInventory
 
 func newApplyCmd() *cobra.Command {
 	var opts applyOpts
@@ -33,6 +51,7 @@ func newApplyCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.setValues, "set", nil, "override values (e.g. --set replicas=5)")
 	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "skip cache, re-download remote source")
 	cmd.Flags().StringVar(&opts.context, "context", "", "kubeconfig context to use")
+	cmd.Flags().BoolVar(&opts.createNamespace, "create-namespace", false, "create namespace if it does not exist")
 
 	return cmd
 }
@@ -42,48 +61,52 @@ func init() {
 }
 
 func runApply(cmd *cobra.Command, releaseName, source string, opts applyOpts) error {
-	resolvedDir, err := resolveSourceDir(source, opts.noCache)
+	resolvedDir, err := resolveSourceDirForApply(source, opts.noCache)
 	if err != nil {
 		return err
 	}
 
 	opts.templateOpts.releaseName = releaseName
-	resources, err := renderResources(resolvedDir, opts.templateOpts)
+	resources, err := renderResourcesForApply(resolvedDir, opts.templateOpts)
 	if err != nil {
 		return err
 	}
 
-	resources = k8s.InjectReleaseLabels(resources, releaseName)
+	resources = injectReleaseLabelsForApply(resources, releaseName)
 
-	client, err := k8s.NewClient(opts.context, opts.namespace)
+	client, err := newK8sClientForApply(opts.context, opts.namespace)
 	if err != nil {
 		return fmt.Errorf("creating k8s client: %w", err)
 	}
 
-	oldRefs, err := k8s.LoadInventory(cmd.Context(), client, opts.namespace, releaseName)
+	if err := ensureApplyNamespace(cmd.Context(), client, opts.namespace, opts.createNamespace); err != nil {
+		return err
+	}
+
+	oldRefs, err := loadInventoryForApply(cmd.Context(), client, opts.namespace, releaseName)
 	if err != nil {
 		return fmt.Errorf("loading inventory: %w", err)
 	}
 
-	newRefs, err := k8s.ResourcesToRefs(resources)
+	newRefs, err := resourcesToRefsForApply(resources)
 	if err != nil {
 		return fmt.Errorf("building resource refs: %w", err)
 	}
 
-	orphaned := k8s.ComputeOrphaned(oldRefs, newRefs)
+	orphaned := computeOrphanedForApply(oldRefs, newRefs)
 
-	if err := client.Apply(cmd.Context(), resources); err != nil {
+	if err := applyResourcesForApply(cmd.Context(), client, resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}
 
 	if len(orphaned) > 0 {
 		log.Printf("pruning %d orphaned resource(s)", len(orphaned))
-		if err := client.Delete(cmd.Context(), orphaned); err != nil {
+		if err := deleteResourcesForApply(cmd.Context(), client, orphaned); err != nil {
 			return fmt.Errorf("pruning orphaned resources: %w", err)
 		}
 	}
 
-	if err := k8s.SaveInventory(cmd.Context(), client, opts.namespace, releaseName, resources); err != nil {
+	if err := saveInventoryForApply(cmd.Context(), client, opts.namespace, releaseName, resources); err != nil {
 		return fmt.Errorf("saving inventory: %w", err)
 	}
 
@@ -95,5 +118,15 @@ func runApply(cmd *cobra.Command, releaseName, source string, opts applyOpts) er
 		fmt.Fprint(cmd.OutOrStdout(), out)
 	}
 
+	return nil
+}
+
+func ensureApplyNamespace(ctx context.Context, client *k8s.Client, namespace string, createNamespace bool) error {
+	if !createNamespace || namespace == "" {
+		return nil
+	}
+	if err := ensureNamespaceForApply(ctx, client, namespace); err != nil {
+		return fmt.Errorf("ensuring namespace %q: %w", namespace, err)
+	}
 	return nil
 }

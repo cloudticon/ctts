@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +17,12 @@ const (
 	inventoryInstanceLabelKey  = "ct.cloudticon.com/instance"
 	inventoryResourcesDataKey  = "resources"
 )
+
+type ReleaseInfo struct {
+	Name      string `json:"name" yaml:"name"`
+	Namespace string `json:"namespace" yaml:"namespace"`
+	Resources int    `json:"resources" yaml:"resources"`
+}
 
 func SaveInventory(ctx context.Context, client *Client, namespace, releaseName string, resources []Resource) error {
 	if client == nil || client.CoreV1 == nil {
@@ -131,6 +138,61 @@ func DeleteInventory(ctx context.Context, client *Client, namespace, releaseName
 	}
 
 	return nil
+}
+
+func ListReleases(ctx context.Context, client *Client, namespace string, allNamespaces bool) ([]ReleaseInfo, error) {
+	if client == nil || client.CoreV1 == nil {
+		return nil, errors.New("k8s client is required")
+	}
+
+	targetNamespace := ""
+	if !allNamespaces {
+		var err error
+		targetNamespace, err = resolveInventoryNamespace(client, namespace)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	cmList, err := client.CoreV1.ConfigMaps(targetNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: inventoryManagedByLabelKey + "=ct",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing inventory configmaps: %w", err)
+	}
+
+	releases := make([]ReleaseInfo, 0, len(cmList.Items))
+	for _, cm := range cmList.Items {
+		releaseName := cm.Labels[inventoryInstanceLabelKey]
+		if releaseName == "" {
+			continue
+		}
+
+		resourceCount := 0
+		rawResources := cm.Data[inventoryResourcesDataKey]
+		if rawResources != "" {
+			var refs []json.RawMessage
+			if err := json.Unmarshal([]byte(rawResources), &refs); err != nil {
+				return nil, fmt.Errorf("unmarshaling inventory resources for %s/%s: %w", cm.Namespace, cm.Name, err)
+			}
+			resourceCount = len(refs)
+		}
+
+		releases = append(releases, ReleaseInfo{
+			Name:      releaseName,
+			Namespace: cm.Namespace,
+			Resources: resourceCount,
+		})
+	}
+
+	sort.Slice(releases, func(i, j int) bool {
+		if releases[i].Namespace == releases[j].Namespace {
+			return releases[i].Name < releases[j].Name
+		}
+		return releases[i].Namespace < releases[j].Namespace
+	})
+
+	return releases, nil
 }
 
 func inventoryConfigMapName(releaseName string) string {

@@ -185,6 +185,120 @@ func TestDeleteInventory_IgnoresNotFound(t *testing.T) {
 	require.NoError(t, DeleteInventory(context.Background(), client, "prod", "missing"))
 }
 
+func TestListReleases_Namespace(t *testing.T) {
+	client, _ := newInventoryTestClient(t)
+	ctx := context.Background()
+
+	_, err := client.CoreV1.ConfigMaps("prod").Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ct-inventory-my-release",
+			Namespace: "prod",
+			Labels: map[string]string{
+				inventoryManagedByLabelKey: "ct",
+				inventoryInstanceLabelKey:  "my-release",
+			},
+		},
+		Data: map[string]string{
+			inventoryResourcesDataKey: `[{"kind":"Deployment"},{"kind":"Service"}]`,
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	_, err = client.CoreV1.ConfigMaps("prod").Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ignored-no-label",
+			Namespace: "prod",
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	_, err = client.CoreV1.ConfigMaps("prod").Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ignored-no-instance",
+			Namespace: "prod",
+			Labels: map[string]string{
+				inventoryManagedByLabelKey: "ct",
+			},
+		},
+		Data: map[string]string{
+			inventoryResourcesDataKey: `[]`,
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	releases, err := ListReleases(ctx, client, "prod", false)
+	require.NoError(t, err)
+	assert.Equal(t, []ReleaseInfo{
+		{Name: "my-release", Namespace: "prod", Resources: 2},
+	}, releases)
+}
+
+func TestListReleases_AllNamespaces(t *testing.T) {
+	client, _ := newInventoryTestClient(t)
+	ctx := context.Background()
+
+	_, err := client.CoreV1.ConfigMaps("staging").Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ct-inventory-backend",
+			Namespace: "staging",
+			Labels: map[string]string{
+				inventoryManagedByLabelKey: "ct",
+				inventoryInstanceLabelKey:  "backend",
+			},
+		},
+		Data: map[string]string{
+			inventoryResourcesDataKey: `[{"kind":"Deployment"}]`,
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	_, err = client.CoreV1.ConfigMaps("prod").Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ct-inventory-api",
+			Namespace: "prod",
+			Labels: map[string]string{
+				inventoryManagedByLabelKey: "ct",
+				inventoryInstanceLabelKey:  "api",
+			},
+		},
+		Data: map[string]string{
+			inventoryResourcesDataKey: `[{"kind":"Deployment"},{"kind":"Service"},{"kind":"ConfigMap"}]`,
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	releases, err := ListReleases(ctx, client, "", true)
+	require.NoError(t, err)
+	assert.Equal(t, []ReleaseInfo{
+		{Name: "api", Namespace: "prod", Resources: 3},
+		{Name: "backend", Namespace: "staging", Resources: 1},
+	}, releases)
+}
+
+func TestListReleases_ReturnsErrorOnInvalidResourcesJSON(t *testing.T) {
+	client, _ := newInventoryTestClient(t)
+	ctx := context.Background()
+
+	_, err := client.CoreV1.ConfigMaps("prod").Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ct-inventory-broken",
+			Namespace: "prod",
+			Labels: map[string]string{
+				inventoryManagedByLabelKey: "ct",
+				inventoryInstanceLabelKey:  "broken",
+			},
+		},
+		Data: map[string]string{
+			inventoryResourcesDataKey: `{`,
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	_, err = ListReleases(ctx, client, "prod", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshaling inventory resources")
+}
+
 func TestResourcesToRefs_Validation(t *testing.T) {
 	_, err := ResourcesToRefs([]Resource{
 		{
