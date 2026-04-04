@@ -33,13 +33,17 @@ type Syncer struct {
 
 var (
 	waitForPodFn = func(ctx context.Context, client *k8s.Client, selector map[string]string) (string, error) {
-		return "", errors.New("k8s pod resolver is not configured")
+		return k8s.WaitForPod(ctx, client, selector)
 	}
 	execStreamFn = func(ctx context.Context, client *k8s.Client, pod string, cmd []string, stdin io.Reader) error {
-		return errors.New("k8s exec stream is not configured")
+		return k8s.ExecStream(ctx, client, pod, cmd, k8s.ExecStreamOpts{
+			Stdin:  stdin,
+			Stdout: io.Discard,
+			Stderr: io.Discard,
+		})
 	}
 	execSimpleFn = func(ctx context.Context, client *k8s.Client, pod string, cmd []string) error {
-		return errors.New("k8s exec simple is not configured")
+		return k8s.ExecSimple(ctx, client, pod, cmd)
 	}
 )
 
@@ -88,6 +92,10 @@ func (s *Syncer) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func (s *Syncer) ensureRemoteDir(ctx context.Context) error {
+	return execSimpleFn(ctx, s.client, s.podName, []string{"mkdir", "-p", s.rule.To})
+}
+
 func (s *Syncer) initialSync(ctx context.Context) error {
 	files, err := collectFiles(s.rule.From, s.rule.Exclude)
 	if err != nil {
@@ -95,6 +103,10 @@ func (s *Syncer) initialSync(ctx context.Context) error {
 	}
 	if len(files) == 0 {
 		return nil
+	}
+
+	if err := s.ensureRemoteDir(ctx); err != nil {
+		return fmt.Errorf("creating remote directory %s: %w", s.rule.To, err)
 	}
 
 	buf := bytes.NewBuffer(nil)

@@ -26,6 +26,11 @@ var (
 	forwardPortsFn = forwardPorts
 )
 
+// WaitForPod waits until a running pod matching selector is available.
+func WaitForPod(ctx context.Context, c *Client, selector map[string]string) (string, error) {
+	return waitForPod(ctx, c, selector)
+}
+
 // PortForward starts port forwarding for the selected workload and reconnects on connection loss.
 func PortForward(ctx context.Context, c *Client, selector map[string]string, ports []PortRule) error {
 	if c == nil {

@@ -114,15 +114,20 @@ func TestSyncerRun_CallsInitialAndExitsOnCancel(t *testing.T) {
 
 	origWaitForPodFn := waitForPodFn
 	origExecStreamFn := execStreamFn
+	origExecSimpleFn := execSimpleFn
 	t.Cleanup(func() {
 		waitForPodFn = origWaitForPodFn
 		execStreamFn = origExecStreamFn
+		execSimpleFn = origExecSimpleFn
 	})
 
 	waitForPodFn = func(_ context.Context, _ *k8s.Client, _ map[string]string) (string, error) {
 		return "pod-1", nil
 	}
 	execStreamFn = func(_ context.Context, _ *k8s.Client, _ string, _ []string, _ io.Reader) error {
+		return nil
+	}
+	execSimpleFn = func(_ context.Context, _ *k8s.Client, _ string, _ []string) error {
 		return nil
 	}
 

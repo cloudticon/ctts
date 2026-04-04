@@ -2,14 +2,17 @@ package dev
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"strings"
 
 	"github.com/cloudticon/ctts/pkg/engine"
 	"github.com/cloudticon/ctts/pkg/k8s"
+	ctsync "github.com/cloudticon/ctts/pkg/sync"
 )
 
 type RunOpts struct {
@@ -29,13 +32,125 @@ var newK8sClient = func(kubeCtx, namespace string) (kubeApplier, error) {
 	return k8s.NewClient(kubeCtx, namespace)
 }
 
+var runTerminalFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, command string) error {
+	return k8s.Exec(ctx, client, selector, command)
+}
+
+var runPortForwardFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, ports []PortRule) error {
+	k8sPorts := make([]k8s.PortRule, 0, len(ports))
+	for _, p := range ports {
+		k8sPorts = append(k8sPorts, k8s.PortRule{Local: p.Local, Remote: p.Remote})
+	}
+	return k8s.PortForward(ctx, client, selector, k8sPorts)
+}
+
+var runLogsFn = func(ctx context.Context, client *k8s.Client, targetName string, selector map[string]string, w io.Writer) error {
+	return k8s.StreamLogs(ctx, client, targetName, selector, w)
+}
+
+var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, rule SyncRule) error {
+	syncer := ctsync.NewSyncer(client, selector, ctsync.SyncRule{
+		From:    rule.From,
+		To:      rule.To,
+		Exclude: append([]string(nil), rule.Exclude...),
+		Polling: rule.Polling,
+	})
+	return syncer.Run(ctx)
+}
+
 var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []Target, stdout io.Writer) error {
-	_ = ctx
-	_ = client
-	_ = targets
-	_ = stdout
-	// Port-forwarding, sync, logs and terminal are added in later phases.
-	return nil
+	k8sClient, ok := client.(*k8s.Client)
+	if !ok {
+		return fmt.Errorf("unsupported kubernetes client type %T", client)
+	}
+
+	if len(targets) == 0 {
+		return nil
+	}
+
+	featuresCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 1)
+
+	startFeature := func(fn func(context.Context) error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := fn(featuresCtx); err != nil && !errors.Is(err, context.Canceled) {
+				select {
+				case errCh <- err:
+				default:
+				}
+				cancel()
+			}
+		}()
+	}
+
+	for _, target := range targets {
+		target := target
+
+		if len(target.Ports) > 0 {
+			startFeature(func(gctx context.Context) error {
+				return runPortForwardFn(gctx, k8sClient, target.Selector, target.Ports)
+			})
+		}
+
+		for _, rule := range target.Sync {
+			rule := rule
+			startFeature(func(gctx context.Context) error {
+				return runSyncFn(gctx, k8sClient, target.Selector, rule)
+			})
+		}
+
+		startFeature(func(gctx context.Context) error {
+			return runLogsFn(gctx, k8sClient, target.Name, target.Selector, stdout)
+		})
+	}
+
+	waitFeatures := func() error {
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case err := <-errCh:
+			<-done
+			return err
+		case <-done:
+			return nil
+		}
+	}
+
+	for _, target := range targets {
+		if strings.TrimSpace(target.Terminal) == "" {
+			continue
+		}
+
+		if stdout != nil {
+			fmt.Fprintf(stdout, "starting terminal for target %s\n", target.Name)
+		}
+
+		terminalErr := runTerminalFn(featuresCtx, k8sClient, target.Selector, target.Terminal)
+		cancel()
+
+		if waitErr := waitFeatures(); waitErr != nil {
+			return waitErr
+		}
+		return terminalErr
+	}
+
+	select {
+	case <-ctx.Done():
+		cancel()
+		_ = waitFeatures()
+		return nil
+	default:
+		return waitFeatures()
+	}
 }
 
 func Run(ctx context.Context, opts RunOpts) error {
