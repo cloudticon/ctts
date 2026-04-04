@@ -1,8 +1,15 @@
 # ct — Kubernetes manifests from code
 
+[![Build](https://github.com/cloudticon/ctts/actions/workflows/build.yml/badge.svg)](https://github.com/cloudticon/ctts/actions/workflows/build.yml)
+[![Release](https://github.com/cloudticon/ctts/actions/workflows/release.yml/badge.svg)](https://github.com/cloudticon/ctts/actions/workflows/release.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/cloudticon/ctts)](https://github.com/cloudticon/ctts)
+[![License](https://img.shields.io/github/license/cloudticon/ctts)](https://github.com/cloudticon/ctts/blob/master/LICENSE)
+
 `ct` generates Kubernetes YAML/JSON manifests from `.ct` definitions. Write real code (loops, conditionals, cross-references) instead of templating languages.
 
 `ct dev` mode is inspired by [DevSpace](https://devspace.sh): fast inner-loop development directly against Kubernetes workloads.
+
+**Documentation:** [cloudticon.com](https://cloudticon.com/)
 
 ## Features
 
@@ -436,10 +443,6 @@ go test ./...
 # Build
 go build -o ct ./cmd/ct
 ```
-
-## Documentation
-
-Full documentation is available at [cloudticon.com](https://cloudticon.com/).
 
 ## License
 
