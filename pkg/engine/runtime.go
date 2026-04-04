@@ -17,9 +17,7 @@ type ExecuteOpts struct {
 func Execute(opts ExecuteOpts) ([]Resource, error) {
 	vm := goja.New()
 
-	if err := injectGlobals(vm, opts.Values); err != nil {
-		return nil, fmt.Errorf("failed to inject globals: %w", err)
-	}
+	injectGlobals(vm, opts.Values)
 
 	if _, err := vm.RunString(opts.JSCode); err != nil {
 		return nil, fmt.Errorf("JS execution error: %w", err)
@@ -34,41 +32,13 @@ func Execute(opts ExecuteOpts) ([]Resource, error) {
 	return resources, nil
 }
 
-func injectGlobals(vm *goja.Runtime, values map[string]interface{}) error {
-	global := vm.GlobalObject()
-
-	registry := vm.NewArray()
-	if err := global.Set("__ct_resources", registry); err != nil {
-		return err
-	}
-
-	initScript := `
-		if (typeof globalThis !== 'undefined') {
-			globalThis.__ct_resources = __ct_resources;
-		}
-	`
-	if _, err := vm.RunString(initScript); err != nil {
-		return err
-	}
-
+func injectGlobals(vm *goja.Runtime, values map[string]interface{}) {
+	h := NewJSHelper(vm)
+	h.DefineArray("__ct_resources")
 	if values == nil {
 		values = map[string]interface{}{}
 	}
-	valuesObj := vm.ToValue(values)
-	if err := global.Set("Values", valuesObj); err != nil {
-		return err
-	}
-
-	valuesInitScript := `
-		if (typeof globalThis !== 'undefined') {
-			globalThis.Values = Values;
-		}
-	`
-	if _, err := vm.RunString(valuesInitScript); err != nil {
-		return err
-	}
-
-	return nil
+	h.DefineValue("Values", values)
 }
 
 func extractResources(vm *goja.Runtime) ([]Resource, error) {

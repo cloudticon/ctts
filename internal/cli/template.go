@@ -43,31 +43,9 @@ func init() {
 }
 
 func runTemplate(cmd *cobra.Command, dir string, opts templateOpts) error {
-	entryPoint := filepath.Join(dir, "main.ct")
-	if _, err := os.Stat(entryPoint); os.IsNotExist(err) {
-		return fmt.Errorf("entry point not found: %s", entryPoint)
-	}
-
-	tr := engine.NewTranspiler(dir)
-
-	valuesPath := resolveValuesPath(dir, opts.valuesFile)
-	values, err := loadValuesIfPresent(valuesPath, opts.setValues)
+	resources, err := renderResources(dir, opts)
 	if err != nil {
 		return err
-	}
-
-	jsCode, err := tr.Bundle(entryPoint)
-	if err != nil {
-		return fmt.Errorf("bundle failed: %w", err)
-	}
-
-	resources, err := engine.Execute(engine.ExecuteOpts{
-		JSCode:    jsCode,
-		Values:    values,
-		Namespace: opts.namespace,
-	})
-	if err != nil {
-		return fmt.Errorf("execution failed: %w", err)
 	}
 
 	out, err := output.Serialize(toOutputResources(resources), opts.outputFmt)
@@ -77,6 +55,32 @@ func runTemplate(cmd *cobra.Command, dir string, opts templateOpts) error {
 
 	fmt.Fprint(cmd.OutOrStdout(), out)
 	return nil
+}
+
+func renderResources(dir string, opts templateOpts) ([]engine.Resource, error) {
+	entryPoint := filepath.Join(dir, "main.ct")
+	if _, err := os.Stat(entryPoint); os.IsNotExist(err) {
+		return nil, fmt.Errorf("entry point not found: %s", entryPoint)
+	}
+
+	tr := engine.NewTranspiler(dir)
+
+	valuesPath := resolveValuesPath(dir, opts.valuesFile)
+	values, err := loadValuesIfPresent(valuesPath, opts.setValues)
+	if err != nil {
+		return nil, err
+	}
+
+	jsCode, err := tr.Bundle(entryPoint)
+	if err != nil {
+		return nil, fmt.Errorf("bundle failed: %w", err)
+	}
+
+	return engine.Execute(engine.ExecuteOpts{
+		JSCode:    jsCode,
+		Values:    values,
+		Namespace: opts.namespace,
+	})
 }
 
 func resolveValuesPath(dir, explicit string) string {

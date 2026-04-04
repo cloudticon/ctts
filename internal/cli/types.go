@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cloudticon/ctts/internal/dev"
 	"github.com/cloudticon/ctts/pkg/cache"
 	"github.com/cloudticon/ctts/pkg/engine"
 	"github.com/cloudticon/ctts/pkg/packages"
@@ -18,6 +19,7 @@ import (
 type typesOpts struct {
 	output   string
 	operator bool
+	dev      bool
 }
 
 func newTypesCmd() *cobra.Command {
@@ -39,6 +41,7 @@ func newTypesCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.output, "output", "", "output directory (default ~/.ct/types/<project-hash>)")
 	cmd.Flags().BoolVar(&opts.operator, "operator", false, "include operator globals (getStatus, setStatus, fetch, log, Env)")
+	cmd.Flags().BoolVar(&opts.dev, "dev", false, "generate dev.d.ts for dev.ct IDE support")
 
 	return cmd
 }
@@ -87,6 +90,14 @@ func runTypes(cmd *cobra.Command, dir string, opts typesOpts) error {
 
 	if err := os.WriteFile(filepath.Join(outDir, "globals.d.ts"), []byte(generateGlobalsDts(opts.operator)), 0o644); err != nil {
 		return fmt.Errorf("writing globals.d.ts: %w", err)
+	}
+
+	if opts.dev {
+		resourceNames := collectUniqueWorkloadNames(absDir)
+		envKeys := collectEnvKeys(absDir)
+		if err := os.WriteFile(filepath.Join(outDir, "dev.d.ts"), []byte(generateDevDts(resourceNames, envKeys)), 0o644); err != nil {
+			return fmt.Errorf("writing dev.d.ts: %w", err)
+		}
 	}
 
 	fmt.Fprintln(cmd.OutOrStdout(), outDir)
@@ -216,4 +227,126 @@ func generateGlobalsDts(operator bool) string {
 	}
 
 	return buf.String()
+}
+
+func collectUniqueWorkloadNames(dir string) []string {
+	entryPoint := filepath.Join(dir, "main.ct")
+	if _, err := os.Stat(entryPoint); err != nil {
+		return nil
+	}
+
+	tr := engine.NewTranspiler(dir)
+	js, err := tr.Bundle(entryPoint)
+	if err != nil {
+		return nil
+	}
+
+	valuesPath := resolveValuesPath(dir, "")
+	values, err := loadValuesIfPresent(valuesPath, nil)
+	if err != nil {
+		return nil
+	}
+
+	resources, err := engine.Execute(engine.ExecuteOpts{
+		JSCode: js,
+		Values: values,
+	})
+	if err != nil {
+		return nil
+	}
+
+	return dev.UniqueWorkloadNames(resources)
+}
+
+func collectEnvKeys(dir string) []string {
+	envPath := filepath.Join(dir, ".env")
+	env, err := engine.LoadEnvFile(envPath)
+	if err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func generateDevDts(resourceNames, envKeys []string) string {
+	var buf strings.Builder
+	buf.WriteString("/// <reference path=\"./values.d.ts\" />\n\n")
+	writeStringLiteralUnion(&buf, "CtResource", resourceNames, "never")
+	buf.WriteString("\n")
+	writeStringLiteralUnion(&buf, "CtEnvKey", envKeys, "never")
+	buf.WriteString("\n")
+
+	buf.WriteString("interface SyncRule {\n")
+	buf.WriteString("  from: string;\n")
+	buf.WriteString("  to: string;\n")
+	buf.WriteString("  exclude?: string[];\n")
+	buf.WriteString("  polling?: boolean;\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("interface EnvVar {\n")
+	buf.WriteString("  name: string;\n")
+	buf.WriteString("  value: string;\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("interface DevConfig {\n")
+	buf.WriteString("  sync?: SyncRule[];\n")
+	buf.WriteString("  ports?: (number | [number, number])[];\n")
+	buf.WriteString("  terminal?: string;\n")
+	buf.WriteString("  probes?: boolean;\n")
+	buf.WriteString("  replicas?: number;\n")
+	buf.WriteString("  env?: EnvVar[];\n")
+	buf.WriteString("  workingDir?: string;\n")
+	buf.WriteString("  image?: string;\n")
+	buf.WriteString("  command?: string[];\n")
+	buf.WriteString("  container?: string;\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("interface DevConfigWithSelector extends DevConfig {\n")
+	buf.WriteString("  selector: Record<string, string>;\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("type DeepPartial<T> = {\n")
+	buf.WriteString("  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];\n")
+	buf.WriteString("};\n\n")
+
+	buf.WriteString("declare function config(opts: {\n")
+	buf.WriteString("  namespace: string;\n")
+	buf.WriteString("  values?: DeepPartial<CtValues>;\n")
+	buf.WriteString("}): void;\n\n")
+
+	buf.WriteString("declare function dev(name: CtResource, config: DevConfig): void;\n")
+	buf.WriteString("declare function dev(name: string, config: DevConfigWithSelector): void;\n\n")
+
+	buf.WriteString("declare function prompt(question: string): string;\n\n")
+
+	buf.WriteString("declare function env(name: CtEnvKey): string;\n")
+	buf.WriteString("declare function env(name: CtEnvKey, defaultValue: number): number;\n")
+	buf.WriteString("declare function env(name: CtEnvKey, defaultValue: string): string;\n")
+	buf.WriteString("declare function env(name: string): string;\n")
+	buf.WriteString("declare function env(name: string, defaultValue: number): number;\n")
+	buf.WriteString("declare function env(name: string, defaultValue: string): string;\n")
+
+	return buf.String()
+}
+
+func writeStringLiteralUnion(buf *strings.Builder, typeName string, values []string, fallback string) {
+	buf.WriteString("type ")
+	buf.WriteString(typeName)
+	buf.WriteString(" = ")
+	if len(values) == 0 {
+		buf.WriteString(fallback)
+		buf.WriteString(";\n")
+		return
+	}
+	for i, v := range values {
+		if i > 0 {
+			buf.WriteString(" | ")
+		}
+		fmt.Fprintf(buf, "%q", v)
+	}
+	buf.WriteString(";\n")
 }
