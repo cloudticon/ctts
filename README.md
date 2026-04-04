@@ -5,6 +5,8 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/cloudticon/ctts)](https://github.com/cloudticon/ctts)
 [![License](https://img.shields.io/github/license/cloudticon/ctts)](https://github.com/cloudticon/ctts/blob/master/LICENSE)
 
+> **⚠️ Beta** — `ct` is under active development. APIs, CLI flags, and file formats may change between releases. Feedback and bug reports are welcome!
+
 `ct` generates Kubernetes YAML/JSON manifests from `.ct` definitions. Write real code (loops, conditionals, cross-references) instead of templating languages.
 
 `ct dev` mode is inspired by [DevSpace](https://devspace.sh): fast inner-loop development directly against Kubernetes workloads.
