@@ -172,6 +172,47 @@ func TestTypesCmd_FindsOperatorCt(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestTypesCmd_WithDevFlag_GeneratesDevDts(t *testing.T) {
+	dir := t.TempDir()
+	outDir := filepath.Join(dir, "output")
+
+	mainCt := `
+__ct_resources.push({
+  apiVersion: "apps/v1",
+  kind: "Deployment",
+  metadata: { name: "remix" },
+  spec: {
+    selector: {
+      matchLabels: { app: "remix" }
+    }
+  }
+});
+__ct_resources.push({
+  apiVersion: "v1",
+  kind: "Service",
+  metadata: { name: "remix-svc" },
+  spec: { selector: { app: "remix" } }
+});
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "main.ct"), []byte(mainCt), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".env"), []byte("ZETA=1\nALPHA=2\n"), 0o644))
+
+	cmd := newTypesCmd()
+	cmd.SetArgs([]string{dir, "--output", outDir, "--dev"})
+	require.NoError(t, cmd.Execute())
+
+	data, err := os.ReadFile(filepath.Join(outDir, "dev.d.ts"))
+	require.NoError(t, err)
+	content := string(data)
+
+	assert.Contains(t, content, `/// <reference path="./values.d.ts" />`)
+	assert.Contains(t, content, `type CtResource = "remix";`)
+	assert.Contains(t, content, `type CtEnvKey = "ALPHA" | "ZETA";`)
+	assert.Contains(t, content, "interface DevConfig")
+	assert.Contains(t, content, "declare function dev(name: CtResource, config: DevConfig): void;")
+	assert.Contains(t, content, "declare function env(name: CtEnvKey, defaultValue: number): number;")
+}
+
 func TestInferTSType(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -248,6 +289,12 @@ func TestGenerateGlobalsDts_WithOperator(t *testing.T) {
 	assert.Contains(t, result, "warn(...args: any[]): void")
 	assert.Contains(t, result, "error(...args: any[]): void")
 	assert.Contains(t, result, "declare const Env: Record<string, string>")
+}
+
+func TestGenerateDevDts_EmptyUnionsFallbackToNever(t *testing.T) {
+	result := generateDevDts(nil, nil)
+	assert.Contains(t, result, "type CtResource = never;")
+	assert.Contains(t, result, "type CtEnvKey = never;")
 }
 
 func TestFindEntryPoint(t *testing.T) {

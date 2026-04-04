@@ -2,6 +2,8 @@
 
 `ct` generates Kubernetes YAML/JSON manifests from `.ct` definitions. Write real code (loops, conditionals, cross-references) instead of templating languages.
 
+`ct dev` mode is inspired by [DevSpace](https://devspace.sh): fast inner-loop development directly against Kubernetes workloads.
+
 ## Features
 
 - **TypeScript syntax** — full language power: variables, loops, conditionals, type safety
@@ -288,6 +290,46 @@ The command also resolves and caches URL imports so IDE resolution works offline
 
 Output directory defaults to `~/.ct/types/<project-hash>`. The path is printed to stdout so tools (e.g. VS Code extension) can consume it.
 
+## Apply manifests to cluster — `ct apply`
+
+Render and apply manifests in one step using Kubernetes server-side apply.
+
+```bash
+# Render + apply resources from main.ct
+ct apply .
+
+# Apply with explicit namespace and context
+ct apply . --namespace development --context staging
+
+# Override values while applying
+ct apply . --values values-staging.yaml --set replicas=2
+
+# Optionally print applied output
+ct apply . --output yaml
+```
+
+`ct apply` is useful when you want one command for both generation and deployment without a separate `kubectl apply`.
+
+## Development mode — `ct dev`
+
+Run live development workflows directly on cluster workloads from `dev.ct` (DevSpace-inspired flow).
+
+```bash
+# Start dev mode from current directory
+ct dev
+
+# Use a custom env file
+ct dev --env-file .env.dev
+
+# Skip env file loading
+ct dev --env-file ""
+
+# Use a specific kubeconfig context
+ct dev --context staging
+```
+
+`ct dev` executes `dev.ct`, applies rendered resources, then starts development features such as port forwarding, logs, and sync according to your dev targets.
+
 ## CLI reference
 
 ```
@@ -300,9 +342,21 @@ ct template <dir> [flags]
   -o, --output string      output format: yaml or json (default "yaml")
       --set stringArray    override values (e.g. --set replicas=5)
 
+ct apply <dir> [flags]
+  -n, --namespace string   target namespace for resources
+  -f, --values string      path to values file (JSON or YAML, overrides auto-detect)
+  -o, --output string      output format: yaml or json (default: no output)
+      --set stringArray    override values (e.g. --set replicas=5)
+      --context string     kubeconfig context to use
+
+ct dev [flags]
+      --env-file string    path to .env file (empty to skip) (default ".env")
+      --context string     kubeconfig context
+
 ct types [dir] [flags]
       --output string      output directory (default ~/.ct/types/<project-hash>)
       --operator           include operator globals (getStatus, setStatus, fetch, log, Env)
+      --dev                generate dev.d.ts for dev.ct IDE support
 ```
 
 `ct template` auto-detects values files in order: `values.json`, `values.yaml`, `values.yml`. Use `--values` to override.
