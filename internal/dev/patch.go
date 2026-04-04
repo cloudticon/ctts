@@ -32,6 +32,12 @@ func PatchResources(resources []engine.Resource, targets []Target) {
 		if len(t.Command) > 0 {
 			setContainerCommand(res, t.Command, containerIdx)
 		}
+		if t.WorkingDir != "" {
+			setContainerWorkingDir(res, t.WorkingDir, containerIdx)
+		}
+		if t.Image != "" {
+			setContainerImage(res, t.Image, containerIdx)
+		}
 	}
 }
 
@@ -116,6 +122,30 @@ func setContainerCommand(res engine.Resource, command []string, containerIdx int
 		cmdIface[i] = s
 	}
 	c["command"] = cmdIface
+}
+
+func setContainerWorkingDir(res engine.Resource, workingDir string, containerIdx int) {
+	containers := getContainers(res)
+	if containerIdx >= len(containers) {
+		return
+	}
+	c, _ := containers[containerIdx].(map[string]interface{})
+	if c == nil {
+		return
+	}
+	c["workingDir"] = workingDir
+}
+
+func setContainerImage(res engine.Resource, image string, containerIdx int) {
+	containers := getContainers(res)
+	if containerIdx >= len(containers) {
+		return
+	}
+	c, _ := containers[containerIdx].(map[string]interface{})
+	if c == nil {
+		return
+	}
+	c["image"] = image
 }
 
 func getContainers(res engine.Resource) []interface{} {

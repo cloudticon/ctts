@@ -299,6 +299,8 @@ func generateDevDts(resourceNames, envKeys []string) string {
 	buf.WriteString("  probes?: boolean;\n")
 	buf.WriteString("  replicas?: number;\n")
 	buf.WriteString("  env?: EnvVar[];\n")
+	buf.WriteString("  workingDir?: string;\n")
+	buf.WriteString("  image?: string;\n")
 	buf.WriteString("  command?: string[];\n")
 	buf.WriteString("  container?: string;\n")
 	buf.WriteString("}\n\n")

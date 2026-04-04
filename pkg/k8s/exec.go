@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -16,11 +19,15 @@ import (
 )
 
 var (
-	waitForPodForExecFn    = waitForPod
-	execStreamRunnerFn     = ExecStream
-	buildExecURLFn         = buildExecURL
-	newExecExecutorForURL  = remotecommand.NewSPDYExecutor
-	parameterCodec runtime.ParameterCodec = scheme.ParameterCodec
+	waitForPodForExecFn   = waitForPod
+	execStreamRunnerFn    = ExecStream
+	buildExecURLFn        = buildExecURL
+	newExecExecutorForURL = remotecommand.NewSPDYExecutor
+	parameterCodec        runtime.ParameterCodec = scheme.ParameterCodec
+
+	makeRawFn     = func(fd int) (*term.State, error) { return term.MakeRaw(fd) }
+	restoreTermFn = func(fd int, oldState *term.State) error { return term.Restore(fd, oldState) }
+	getTermSizeFn = func(fd int) (int, int, error) { return term.GetSize(fd) }
 )
 
 // ExecStreamOpts configures Kubernetes exec stream behavior.
@@ -31,7 +38,68 @@ type ExecStreamOpts struct {
 	Stdout io.Writer
 	Stderr io.Writer
 
-	TTY bool
+	TTY               bool
+	TerminalSizeQueue remotecommand.TerminalSizeQueue
+}
+
+// termSizeQueue delivers terminal resize events to the remote shell.
+type termSizeQueue struct {
+	resizeCh chan remotecommand.TerminalSize
+	sigCh    chan os.Signal
+	done     chan struct{}
+}
+
+func newTermSizeQueue(fd int) *termSizeQueue {
+	q := &termSizeQueue{
+		resizeCh: make(chan remotecommand.TerminalSize, 1),
+		sigCh:    make(chan os.Signal, 1),
+		done:     make(chan struct{}),
+	}
+
+	if w, h, err := getTermSizeFn(fd); err == nil {
+		q.resizeCh <- remotecommand.TerminalSize{Width: uint16(w), Height: uint16(h)}
+	}
+
+	signal.Notify(q.sigCh, syscall.SIGWINCH)
+	go q.monitor(fd)
+	return q
+}
+
+func (q *termSizeQueue) monitor(fd int) {
+	defer signal.Stop(q.sigCh)
+	for {
+		select {
+		case <-q.sigCh:
+			if w, h, err := getTermSizeFn(fd); err == nil {
+				select {
+				case q.resizeCh <- remotecommand.TerminalSize{Width: uint16(w), Height: uint16(h)}:
+				default:
+				}
+			}
+		case <-q.done:
+			return
+		}
+	}
+}
+
+func (q *termSizeQueue) Next() *remotecommand.TerminalSize {
+	select {
+	case size, ok := <-q.resizeCh:
+		if !ok {
+			return nil
+		}
+		return &size
+	case <-q.done:
+		return nil
+	}
+}
+
+func (q *termSizeQueue) stop() {
+	select {
+	case <-q.done:
+	default:
+		close(q.done)
+	}
 }
 
 // Exec runs a shell command in the first running pod matching selector and attaches local stdio.
@@ -45,11 +113,22 @@ func Exec(ctx context.Context, c *Client, selector map[string]string, command st
 		return err
 	}
 
+	fd := int(os.Stdin.Fd())
+	oldState, err := makeRawFn(fd)
+	if err != nil {
+		return fmt.Errorf("setting terminal raw mode: %w", err)
+	}
+	defer restoreTermFn(fd, oldState)
+
+	sizeQueue := newTermSizeQueue(fd)
+	defer sizeQueue.stop()
+
 	return execStreamRunnerFn(ctx, c, pod, []string{"/bin/sh", "-c", command}, ExecStreamOpts{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-		TTY:    true,
+		Stdin:             os.Stdin,
+		Stdout:            os.Stdout,
+		Stderr:            os.Stderr,
+		TTY:               true,
+		TerminalSizeQueue: sizeQueue,
 	})
 }
 
@@ -86,12 +165,17 @@ func ExecStream(ctx context.Context, c *Client, pod string, cmd []string, opts E
 		return fmt.Errorf("creating exec executor: %w", err)
 	}
 
-	if err := executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+	streamOpts := remotecommand.StreamOptions{
 		Stdin:  opts.Stdin,
 		Stdout: opts.Stdout,
 		Stderr: opts.Stderr,
 		Tty:    opts.TTY,
-	}); err != nil {
+	}
+	if opts.TerminalSizeQueue != nil {
+		streamOpts.TerminalSizeQueue = opts.TerminalSizeQueue
+	}
+
+	if err := executor.StreamWithContext(ctx, streamOpts); err != nil {
 		return fmt.Errorf("executing command in pod %s: %w", pod, err)
 	}
 	return nil

@@ -209,6 +209,8 @@ __ct_resources.push({
 	assert.Contains(t, content, `type CtResource = "remix";`)
 	assert.Contains(t, content, `type CtEnvKey = "ALPHA" | "ZETA";`)
 	assert.Contains(t, content, "interface DevConfig")
+	assert.Contains(t, content, "  workingDir?: string;")
+	assert.Contains(t, content, "  image?: string;")
 	assert.Contains(t, content, "declare function dev(name: CtResource, config: DevConfig): void;")
 	assert.Contains(t, content, "declare function env(name: CtEnvKey, defaultValue: number): number;")
 }

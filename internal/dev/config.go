@@ -19,10 +19,12 @@ type Target struct {
 	Terminal string // empty = no terminal
 
 	// Workload patches (applied between render and apply)
-	Probes   *bool    // nil = default false (remove probes); true = keep
-	Replicas *int     // nil = no change
-	Env      []EnvVar // add/override env vars on container
-	Command  []string // override container command
+	Probes     *bool    // nil = default false (remove probes); true = keep
+	Replicas   *int     // nil = no change
+	Env        []EnvVar // add/override env vars on container
+	WorkingDir string   // override container workingDir
+	Image      string   // override container image
+	Command    []string // override container command
 }
 
 type EnvVar struct {

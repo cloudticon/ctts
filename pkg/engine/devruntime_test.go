@@ -116,6 +116,8 @@ func TestExecuteDev_DevTargetWorkloadPatches(t *testing.T) {
 		dev("web", {
 			replicas: 1,
 			env: [{ name: "NODE_OPTIONS", value: "" }],
+			workingDir: "/workspace",
+			image: "web:dev",
 			command: ["npm", "run", "dev"],
 			probes: false,
 			container: "main",
@@ -142,6 +144,8 @@ func TestExecuteDev_DevTargetWorkloadPatches(t *testing.T) {
 	require.Len(t, target.Env, 1)
 	assert.Equal(t, "NODE_OPTIONS", target.Env[0]["name"])
 	assert.Equal(t, "", target.Env[0]["value"])
+	assert.Equal(t, "/workspace", target.WorkingDir)
+	assert.Equal(t, "web:dev", target.Image)
 
 	assert.Equal(t, []string{"npm", "run", "dev"}, target.Command)
 }

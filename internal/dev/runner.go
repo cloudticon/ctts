@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
-	"sync"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cloudticon/ctts/pkg/engine"
 	"github.com/cloudticon/ctts/pkg/k8s"
@@ -88,6 +90,19 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 		}()
 	}
 
+	hasTerminal := false
+	for _, t := range targets {
+		if strings.TrimSpace(t.Terminal) != "" {
+			hasTerminal = true
+			break
+		}
+	}
+	if hasTerminal {
+		originalLogOutput := log.Writer()
+		log.SetOutput(io.Discard)
+		defer log.SetOutput(originalLogOutput)
+	}
+
 	for _, target := range targets {
 		target := target
 
@@ -104,9 +119,11 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 			})
 		}
 
-		startFeature(func(gctx context.Context) error {
-			return runLogsFn(gctx, k8sClient, target.Name, target.Selector, stdout)
-		})
+		if !hasTerminal {
+			startFeature(func(gctx context.Context) error {
+				return runLogsFn(gctx, k8sClient, target.Name, target.Selector, stdout)
+			})
+		}
 	}
 
 	waitFeatures := func() error {
@@ -134,11 +151,14 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 			fmt.Fprintf(stdout, "starting terminal for target %s\n", target.Name)
 		}
 
-		terminalErr := runTerminalFn(featuresCtx, k8sClient, target.Selector, target.Terminal)
+		terminalErr := runTerminalFn(featuresCtx, k8sClient, target.Selector, terminalCommand(target))
 		cancel()
 
 		if waitErr := waitFeatures(); waitErr != nil {
 			return waitErr
+		}
+		if isTerminalExitCode130(terminalErr) {
+			return nil
 		}
 		return terminalErr
 	}
@@ -151,6 +171,21 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 	default:
 		return waitFeatures()
 	}
+}
+
+func terminalCommand(target Target) string {
+	cmd := target.Terminal
+	if strings.TrimSpace(target.WorkingDir) == "" {
+		return cmd
+	}
+	return fmt.Sprintf("cd %s && %s", strconv.Quote(target.WorkingDir), cmd)
+}
+
+func isTerminalExitCode130(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "exit code 130")
 }
 
 func Run(ctx context.Context, opts RunOpts) error {
@@ -343,15 +378,17 @@ func convertTargets(rawTargets []engine.RawDevTarget) ([]Target, error) {
 		}
 
 		target := Target{
-			Name:      raw.Name,
-			Selector:  raw.Selector,
-			Container: raw.Container,
-			Sync:      syncRules,
-			Ports:     portRules,
-			Terminal:  raw.Terminal,
-			Probes:    raw.Probes,
-			Env:       envVars,
-			Command:   raw.Command,
+			Name:       raw.Name,
+			Selector:   raw.Selector,
+			Container:  raw.Container,
+			Sync:       syncRules,
+			Ports:      portRules,
+			Terminal:   raw.Terminal,
+			Probes:     raw.Probes,
+			Env:        envVars,
+			WorkingDir: raw.WorkingDir,
+			Image:      raw.Image,
+			Command:    raw.Command,
 		}
 
 		if raw.Replicas != nil {

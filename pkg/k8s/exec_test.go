@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/term"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 )
@@ -30,6 +32,21 @@ func (f *fakeStreamExecutor) StreamWithContext(_ context.Context, opts remotecom
 	return f.err
 }
 
+func stubTerminalFns(t *testing.T) {
+	t.Helper()
+	origMakeRaw := makeRawFn
+	origRestore := restoreTermFn
+	origGetSize := getTermSizeFn
+	t.Cleanup(func() {
+		makeRawFn = origMakeRaw
+		restoreTermFn = origRestore
+		getTermSizeFn = origGetSize
+	})
+	makeRawFn = func(int) (*term.State, error) { return nil, nil }
+	restoreTermFn = func(int, *term.State) error { return nil }
+	getTermSizeFn = func(int) (int, int, error) { return 80, 24, nil }
+}
+
 func TestExec_ResolvesPodAndRunsShellCommand(t *testing.T) {
 	origWait := waitForPodForExecFn
 	origRunner := execStreamRunnerFn
@@ -37,6 +54,7 @@ func TestExec_ResolvesPodAndRunsShellCommand(t *testing.T) {
 		waitForPodForExecFn = origWait
 		execStreamRunnerFn = origRunner
 	})
+	stubTerminalFns(t)
 
 	waitForPodForExecFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
 		return "pod-1", nil
@@ -60,6 +78,7 @@ func TestExec_ResolvesPodAndRunsShellCommand(t *testing.T) {
 	assert.Equal(t, "pod-1", gotPod)
 	assert.Equal(t, []string{"/bin/sh", "-c", "npm run dev"}, gotCmd)
 	assert.True(t, gotOpts.TTY)
+	assert.NotNil(t, gotOpts.TerminalSizeQueue, "should pass terminal size queue")
 }
 
 func TestExec_ReturnsWaitForPodError(t *testing.T) {
@@ -150,3 +169,136 @@ func TestExecSimple_UsesNonTTYDefaults(t *testing.T) {
 	assert.NotNil(t, got.Stdout)
 	assert.NotNil(t, got.Stderr)
 }
+
+func TestExec_SetsRawModeAndRestores(t *testing.T) {
+	origWait := waitForPodForExecFn
+	origRunner := execStreamRunnerFn
+	origMakeRaw := makeRawFn
+	origRestore := restoreTermFn
+	origGetSize := getTermSizeFn
+	t.Cleanup(func() {
+		waitForPodForExecFn = origWait
+		execStreamRunnerFn = origRunner
+		makeRawFn = origMakeRaw
+		restoreTermFn = origRestore
+		getTermSizeFn = origGetSize
+	})
+
+	waitForPodForExecFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+		return "pod-1", nil
+	}
+	execStreamRunnerFn = func(_ context.Context, _ *Client, _ string, _ []string, _ ExecStreamOpts) error {
+		return nil
+	}
+	getTermSizeFn = func(int) (int, int, error) { return 120, 40, nil }
+
+	rawCalled := false
+	restoreCalled := false
+	makeRawFn = func(int) (*term.State, error) {
+		rawCalled = true
+		return nil, nil
+	}
+	restoreTermFn = func(int, *term.State) error {
+		restoreCalled = true
+		return nil
+	}
+
+	err := Exec(context.Background(), &Client{}, map[string]string{"app": "web"}, "bash")
+	require.NoError(t, err)
+	assert.True(t, rawCalled, "makeRaw should be called")
+	assert.True(t, restoreCalled, "restore should be called after exec")
+}
+
+func TestExec_ReturnsRawModeError(t *testing.T) {
+	origWait := waitForPodForExecFn
+	origMakeRaw := makeRawFn
+	origGetSize := getTermSizeFn
+	t.Cleanup(func() {
+		waitForPodForExecFn = origWait
+		makeRawFn = origMakeRaw
+		getTermSizeFn = origGetSize
+	})
+
+	waitForPodForExecFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+		return "pod-1", nil
+	}
+	getTermSizeFn = func(int) (int, int, error) { return 80, 24, nil }
+	makeRawFn = func(int) (*term.State, error) {
+		return nil, errors.New("not a terminal")
+	}
+
+	err := Exec(context.Background(), &Client{}, map[string]string{"app": "web"}, "bash")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "setting terminal raw mode")
+}
+
+func TestTermSizeQueue_NextReturnsInitialSize(t *testing.T) {
+	origGetSize := getTermSizeFn
+	t.Cleanup(func() { getTermSizeFn = origGetSize })
+
+	getTermSizeFn = func(int) (int, int, error) { return 132, 43, nil }
+
+	q := newTermSizeQueue(0)
+	defer q.stop()
+
+	size := q.Next()
+	require.NotNil(t, size)
+	assert.Equal(t, uint16(132), size.Width)
+	assert.Equal(t, uint16(43), size.Height)
+}
+
+func TestTermSizeQueue_StopMakesNextReturnNil(t *testing.T) {
+	origGetSize := getTermSizeFn
+	t.Cleanup(func() { getTermSizeFn = origGetSize })
+
+	getTermSizeFn = func(int) (int, int, error) { return 80, 24, nil }
+
+	q := newTermSizeQueue(0)
+	_ = q.Next() // consume initial size
+
+	q.stop()
+
+	done := make(chan *remotecommand.TerminalSize, 1)
+	go func() { done <- q.Next() }()
+
+	select {
+	case got := <-done:
+		assert.Nil(t, got, "Next() should return nil after stop")
+	case <-time.After(time.Second):
+		t.Fatal("Next() did not return after stop()")
+	}
+}
+
+func TestExecStream_PassesTerminalSizeQueue(t *testing.T) {
+	origBuildURL := buildExecURLFn
+	origNewExecutor := newExecExecutorForURL
+	t.Cleanup(func() {
+		buildExecURLFn = origBuildURL
+		newExecExecutorForURL = origNewExecutor
+	})
+
+	buildExecURLFn = func(_ *Client, _ string, _ []string, _ ExecStreamOpts) (*url.URL, error) {
+		return url.Parse("https://example.invalid/exec")
+	}
+
+	fakeExec := &fakeStreamExecutor{}
+	newExecExecutorForURL = func(_ *rest.Config, _ string, _ *url.URL) (remotecommand.Executor, error) {
+		return fakeExec, nil
+	}
+
+	fakeSizeQueue := &staticSizeQueue{size: remotecommand.TerminalSize{Width: 100, Height: 50}}
+
+	err := ExecStream(context.Background(), &Client{Config: &rest.Config{}}, "pod-1", []string{"bash"}, ExecStreamOpts{
+		Stdout:            &bytes.Buffer{},
+		TTY:               true,
+		TerminalSizeQueue: fakeSizeQueue,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, fakeSizeQueue, fakeExec.opts.TerminalSizeQueue)
+}
+
+type staticSizeQueue struct {
+	size remotecommand.TerminalSize
+}
+
+func (q *staticSizeQueue) Next() *remotecommand.TerminalSize { return &q.size }

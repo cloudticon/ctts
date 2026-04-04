@@ -24,16 +24,18 @@ type DevResult struct {
 // RawDevTarget stores unparsed dev target data straight from the JS runtime.
 // Converted to dev.Target later by the runner.
 type RawDevTarget struct {
-	Name      string
-	Selector  map[string]string
-	Container string
-	Sync      []map[string]interface{}
-	Ports     []interface{} // number or [number, number]
-	Terminal  string
-	Probes    *bool
-	Replicas  *int64
-	Env       []map[string]interface{}
-	Command   []string
+	Name       string
+	Selector   map[string]string
+	Container  string
+	Sync       []map[string]interface{}
+	Ports      []interface{} // number or [number, number]
+	Terminal   string
+	Probes     *bool
+	Replicas   *int64
+	Env        []map[string]interface{}
+	WorkingDir string
+	Image      string
+	Command    []string
 }
 
 // ExecuteDev runs dev.ct JS code with injected globals: config, dev, env, prompt.
@@ -87,6 +89,12 @@ func registerDevGlobal(h *JSHelper, result *DevResult) {
 		target.Probes = extractOptionalBool(obj, "probes")
 		target.Replicas = extractOptionalInt64(obj, "replicas")
 		target.Env = extractObjectSlice(obj, "env")
+		if wd, ok := obj["workingDir"].(string); ok {
+			target.WorkingDir = wd
+		}
+		if img, ok := obj["image"].(string); ok {
+			target.Image = img
+		}
 		target.Command = extractStringSlice(obj, "command")
 
 		result.Targets = append(result.Targets, target)

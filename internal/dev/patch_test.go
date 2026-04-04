@@ -153,6 +153,32 @@ func TestPatchResources_CommandOverride(t *testing.T) {
 	assert.Equal(t, []interface{}{"npm", "run", "dev"}, cmd)
 }
 
+func TestPatchResources_WorkingDir(t *testing.T) {
+	resources := []engine.Resource{makeWorkloadResource("web")}
+	targets := []dev.Target{{
+		Name:       "web",
+		WorkingDir: "/workspace",
+	}}
+
+	dev.PatchResources(resources, targets)
+
+	c := getFirstContainer(resources[0])
+	assert.Equal(t, "/workspace", c["workingDir"])
+}
+
+func TestPatchResources_Image(t *testing.T) {
+	resources := []engine.Resource{makeWorkloadResource("web")}
+	targets := []dev.Target{{
+		Name:  "web",
+		Image: "web:dev",
+	}}
+
+	dev.PatchResources(resources, targets)
+
+	c := getFirstContainer(resources[0])
+	assert.Equal(t, "web:dev", c["image"])
+}
+
 func TestPatchResources_ExternalTargetSkipped(t *testing.T) {
 	resources := []engine.Resource{}
 	targets := []dev.Target{{
