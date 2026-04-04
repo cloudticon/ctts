@@ -17,15 +17,20 @@ case "$ARCH" in
     ;;
 esac
 
+SUFFIX=""
 case "$OS" in
   linux|darwin) ;;
+  mingw*|msys*|cygwin*)
+    OS="windows"
+    SUFFIX=".exe"
+    ;;
   *)
     echo "Unsupported OS: $OS" >&2
     exit 1
     ;;
 esac
 
-ASSET_NAME="${BINARY_NAME}-${OS}-${ARCH}"
+ASSET_NAME="${BINARY_NAME}-${OS}-${ARCH}${SUFFIX}"
 
 echo "Detecting system: ${OS}/${ARCH}"
 echo "Fetching latest release from github.com/${REPO}..."
@@ -45,7 +50,7 @@ TMP="$(mktemp)"
 curl -fsSL -o "$TMP" "$LATEST_URL"
 chmod +x "$TMP"
 
-echo "Installing to ${INSTALL_DIR}/${BINARY_NAME}..."
-mv "$TMP" "${INSTALL_DIR}/${BINARY_NAME}"
+echo "Installing to ${INSTALL_DIR}/${BINARY_NAME}${SUFFIX}..."
+mv "$TMP" "${INSTALL_DIR}/${BINARY_NAME}${SUFFIX}"
 
 echo "Done! Run 'ct --help' to get started."
