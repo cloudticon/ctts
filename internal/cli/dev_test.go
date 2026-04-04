@@ -33,6 +33,12 @@ func TestDevCmd_DefaultFlags(t *testing.T) {
 
 	ctx, _ := cmd.Flags().GetString("context")
 	assert.Equal(t, "", ctx)
+
+	name, _ := cmd.Flags().GetString("name")
+	assert.Equal(t, "dev", name)
+
+	del, _ := cmd.Flags().GetBool("delete")
+	assert.False(t, del)
 }
 
 func TestRunDev_PassesOptionsToRunner(t *testing.T) {
@@ -63,8 +69,10 @@ func TestRunDev_PassesOptionsToRunner(t *testing.T) {
 	cmd.SetErr(stderr)
 
 	err = runDev(cmd, devOpts{
-		envFile: ".env.dev",
-		context: "staging",
+		envFile:     ".env.dev",
+		context:     "staging",
+		releaseName: "my-dev",
+		delete:      true,
 	})
 	require.NoError(t, err)
 
@@ -73,6 +81,8 @@ func TestRunDev_PassesOptionsToRunner(t *testing.T) {
 	assert.Equal(t, absDir, captured.Dir)
 	assert.Equal(t, ".env.dev", captured.EnvFile)
 	assert.Equal(t, "staging", captured.KubeCtx)
+	assert.Equal(t, "my-dev", captured.ReleaseName)
+	assert.True(t, captured.Delete)
 	assert.Same(t, stdin, captured.Stdin)
 	assert.Same(t, stdout, captured.Stdout)
 	assert.Same(t, stderr, captured.Stderr)

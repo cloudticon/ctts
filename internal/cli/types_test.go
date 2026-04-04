@@ -38,6 +38,9 @@ func TestTypesCmd_GeneratesFiles(t *testing.T) {
 	require.NoError(t, err)
 	content = string(data)
 	assert.Contains(t, content, "declare const Values: CtValues")
+	assert.Contains(t, content, "declare const Release")
+	assert.Contains(t, content, "readonly name: string")
+	assert.Contains(t, content, "readonly namespace: string")
 	assert.NotContains(t, content, "getStatus")
 }
 
@@ -55,6 +58,7 @@ func TestTypesCmd_WithOperatorFlag(t *testing.T) {
 	require.NoError(t, err)
 	content := string(data)
 	assert.Contains(t, content, "declare const Values: CtValues")
+	assert.Contains(t, content, "declare const Release")
 	assert.Contains(t, content, "declare function getStatus")
 	assert.Contains(t, content, "declare function setStatus")
 	assert.Contains(t, content, "declare function fetch")
@@ -258,8 +262,8 @@ func TestGenerateValuesDts_Empty(t *testing.T) {
 
 func TestGenerateValuesDts_SortedKeys(t *testing.T) {
 	values := map[string]interface{}{
-		"zebra": "z",
-		"alpha": "a",
+		"zebra":  "z",
+		"alpha":  "a",
 		"middle": "m",
 	}
 	result := generateValuesDts(values)
@@ -273,6 +277,9 @@ func TestGenerateValuesDts_SortedKeys(t *testing.T) {
 func TestGenerateGlobalsDts_WithoutOperator(t *testing.T) {
 	result := generateGlobalsDts(false)
 	assert.Contains(t, result, "declare const Values: CtValues")
+	assert.Contains(t, result, "declare const Release")
+	assert.Contains(t, result, "readonly name: string")
+	assert.Contains(t, result, "readonly namespace: string")
 	assert.Contains(t, result, `/// <reference path="./values.d.ts" />`)
 	assert.NotContains(t, result, "getStatus")
 	assert.NotContains(t, result, "setStatus")
@@ -282,6 +289,7 @@ func TestGenerateGlobalsDts_WithoutOperator(t *testing.T) {
 func TestGenerateGlobalsDts_WithOperator(t *testing.T) {
 	result := generateGlobalsDts(true)
 	assert.Contains(t, result, "declare const Values: CtValues")
+	assert.Contains(t, result, "declare const Release")
 	assert.Contains(t, result, "declare function getStatus<T>(resource: T): any")
 	assert.Contains(t, result, "declare function setStatus(cr: any, status: any): void")
 	assert.Contains(t, result, "declare function fetch(url: string")
@@ -327,10 +335,10 @@ func TestFindEntryPoint(t *testing.T) {
 
 func TestImportToURL(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantURL  string
-		wantOK   bool
+		name    string
+		input   string
+		wantURL string
+		wantOK  bool
 	}{
 		{"https_url", "https://github.com/cloudticon/k8s@master", "https://github.com/cloudticon/k8s@master", true},
 		{"git_package", "github.com/cloudticon/k8s", "https://github.com/cloudticon/k8s", true},

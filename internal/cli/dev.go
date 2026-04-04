@@ -9,8 +9,10 @@ import (
 )
 
 type devOpts struct {
-	envFile string
-	context string
+	envFile     string
+	context     string
+	releaseName string
+	delete      bool
 }
 
 var runDevMode = dev.Run
@@ -29,6 +31,8 @@ func newDevCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&opts.envFile, "env-file", ".env", "path to .env file (empty to skip)")
 	cmd.Flags().StringVar(&opts.context, "context", "", "kubeconfig context")
+	cmd.Flags().StringVar(&opts.releaseName, "name", "dev", "release name for inventory and labels")
+	cmd.Flags().BoolVar(&opts.delete, "delete", false, "delete resources from previous dev session")
 
 	return cmd
 }
@@ -44,12 +48,14 @@ func runDev(cmd *cobra.Command, opts devOpts) error {
 	}
 
 	if err := runDevMode(cmd.Context(), dev.RunOpts{
-		Dir:     dir,
-		EnvFile: opts.envFile,
-		KubeCtx: opts.context,
-		Stdin:   cmd.InOrStdin(),
-		Stdout:  cmd.OutOrStdout(),
-		Stderr:  cmd.ErrOrStderr(),
+		Dir:         dir,
+		EnvFile:     opts.envFile,
+		KubeCtx:     opts.context,
+		ReleaseName: opts.releaseName,
+		Delete:      opts.delete,
+		Stdin:       cmd.InOrStdin(),
+		Stdout:      cmd.OutOrStdout(),
+		Stderr:      cmd.ErrOrStderr(),
 	}); err != nil {
 		return fmt.Errorf("running dev mode: %w", err)
 	}

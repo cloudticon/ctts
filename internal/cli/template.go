@@ -7,6 +7,7 @@ import (
 
 	"github.com/cloudticon/ctts/internal/output"
 	"github.com/cloudticon/ctts/pkg/engine"
+	"github.com/cloudticon/ctts/pkg/k8s"
 	"github.com/spf13/cobra"
 )
 
@@ -15,18 +16,20 @@ type templateOpts struct {
 	valuesFile string
 	outputFmt  string
 	setValues  []string
+	noCache    bool
+	releaseName string
 }
 
 func newTemplateCmd() *cobra.Command {
 	var opts templateOpts
 
 	cmd := &cobra.Command{
-		Use:   "template <dir>",
+		Use:   "template <name> <dir|repo>",
 		Short: "Render Kubernetes manifests from a ct project",
-		Long:  "Bundles and executes main.ct from the given directory, producing Kubernetes manifests on stdout.",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Bundles and executes main.ct from the given source, injects ct release labels, and prints Kubernetes manifests to stdout.",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTemplate(cmd, args[0], opts)
+			return runTemplate(cmd, args[0], args[1], opts)
 		},
 	}
 
@@ -34,6 +37,7 @@ func newTemplateCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.valuesFile, "values", "f", "", "path to values file (JSON or YAML, overrides auto-detect)")
 	cmd.Flags().StringVarP(&opts.outputFmt, "output", "o", "yaml", "output format: yaml or json")
 	cmd.Flags().StringArrayVar(&opts.setValues, "set", nil, "override values (e.g. --set replicas=5)")
+	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "skip cache, re-download remote source")
 
 	return cmd
 }
@@ -42,11 +46,18 @@ func init() {
 	rootCmd.AddCommand(newTemplateCmd())
 }
 
-func runTemplate(cmd *cobra.Command, dir string, opts templateOpts) error {
-	resources, err := renderResources(dir, opts)
+func runTemplate(cmd *cobra.Command, releaseName, sourceDir string, opts templateOpts) error {
+	resolvedDir, err := resolveSourceDir(sourceDir, opts.noCache)
 	if err != nil {
 		return err
 	}
+
+	opts.releaseName = releaseName
+	resources, err := renderResources(resolvedDir, opts)
+	if err != nil {
+		return err
+	}
+	resources = k8s.InjectReleaseLabels(resources, releaseName)
 
 	out, err := output.Serialize(toOutputResources(resources), opts.outputFmt)
 	if err != nil {
@@ -77,9 +88,10 @@ func renderResources(dir string, opts templateOpts) ([]engine.Resource, error) {
 	}
 
 	return engine.Execute(engine.ExecuteOpts{
-		JSCode:    jsCode,
-		Values:    values,
-		Namespace: opts.namespace,
+		JSCode:      jsCode,
+		Values:      values,
+		Namespace:   opts.namespace,
+		ReleaseName: opts.releaseName,
 	})
 }
 

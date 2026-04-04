@@ -9,15 +9,16 @@ import (
 type Resource = map[string]interface{}
 
 type ExecuteOpts struct {
-	JSCode    string
-	Values    map[string]interface{}
-	Namespace string
+	JSCode      string
+	Values      map[string]interface{}
+	Namespace   string
+	ReleaseName string
 }
 
 func Execute(opts ExecuteOpts) ([]Resource, error) {
 	vm := goja.New()
 
-	injectGlobals(vm, opts.Values)
+	injectGlobals(vm, opts.Values, opts.ReleaseName, opts.Namespace)
 
 	if _, err := vm.RunString(opts.JSCode); err != nil {
 		return nil, fmt.Errorf("JS execution error: %w", err)
@@ -32,13 +33,17 @@ func Execute(opts ExecuteOpts) ([]Resource, error) {
 	return resources, nil
 }
 
-func injectGlobals(vm *goja.Runtime, values map[string]interface{}) {
+func injectGlobals(vm *goja.Runtime, values map[string]interface{}, releaseName, namespace string) {
 	h := NewJSHelper(vm)
 	h.DefineArray("__ct_resources")
 	if values == nil {
 		values = map[string]interface{}{}
 	}
 	h.DefineValue("Values", values)
+	h.DefineValue("Release", map[string]interface{}{
+		"name":      releaseName,
+		"namespace": namespace,
+	})
 }
 
 func extractResources(vm *goja.Runtime) ([]Resource, error) {

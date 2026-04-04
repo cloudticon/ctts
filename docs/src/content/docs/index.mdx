@@ -1,0 +1,32 @@
+---
+title: ct documentation
+description: Overview of ct docs, quick start, and command guides.
+---
+
+# ct documentation
+
+`ct` generates Kubernetes manifests from TypeScript-style `.ct` files and can also apply or remove release-scoped resources from a cluster.
+
+## First run in 60 seconds
+
+```bash
+# 1) Create a new project
+ct init
+
+# 2) Render manifests from local source with release name
+ct template my-app . --namespace default
+
+# 3) Apply release to cluster
+ct apply my-app . --namespace default
+
+# 4) Remove the same release later
+ct delete my-app --namespace default
+```
+
+## Documentation map
+
+- [CLI overview](./ct/cli-overview)
+- [ct template](./ct/cmd-template)
+- [ct apply](./ct/cmd-apply)
+- [ct delete](./ct/cmd-delete)
+- [ct dev](./ct/cmd-dev)

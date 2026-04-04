@@ -56,16 +56,19 @@ go build -ldflags="-s -w" -o ct ./cmd/ct
 ct init
 
 # Edit main.ct and values.json, then render:
-ct template . --namespace production
+ct template my-app . --namespace production
 
 # JSON output
-ct template . --namespace production --output json
+ct template my-app . --namespace production --output json
 
 # Override values
-ct template . --namespace production --set replicas=5
+ct template my-app . --namespace production --set replicas=5
 
 # Explicit values file (useful for multi-env)
-ct template . --namespace staging --values values-staging.json
+ct template my-app . --namespace staging --values values-staging.json
+
+# Render from GitHub source
+ct template my-app github.com/cloudticon/my-app@v1.0 --namespace staging
 ```
 
 ## User project layout
@@ -132,7 +135,7 @@ domain: app.example.com
 ## Output
 
 ```bash
-$ ct template . --namespace production
+$ ct template my-app . --namespace production
 ```
 
 ```yaml
@@ -273,6 +276,12 @@ URL format: `github.com/{owner}/{repo}@{version}`
 - Packages are downloaded on first use and cached in `~/.ct/cache/`
 - Subsequent runs work offline from cache
 
+Use `--no-cache` to force re-download when using remote sources:
+
+```bash
+ct template my-app github.com/cloudticon/my-app@main --namespace prod --no-cache
+```
+
 ## IDE support — `ct types`
 
 Generate TypeScript type definitions for IDE autocomplete and type checking:
@@ -305,19 +314,35 @@ Render and apply manifests in one step using Kubernetes server-side apply.
 
 ```bash
 # Render + apply resources from main.ct
-ct apply .
+ct apply my-app .
 
 # Apply with explicit namespace and context
-ct apply . --namespace development --context staging
+ct apply my-app . --namespace development --context staging
 
 # Override values while applying
-ct apply . --values values-staging.yaml --set replicas=2
+ct apply my-app . --values values-staging.yaml --set replicas=2
 
 # Optionally print applied output
-ct apply . --output yaml
+ct apply my-app . --output yaml
+
+# Apply from GitHub source
+ct apply my-app github.com/cloudticon/my-app@v1.0 --namespace staging
 ```
 
 `ct apply` is useful when you want one command for both generation and deployment without a separate `kubectl apply`.
+
+`ct apply` stores inventory per release and prunes orphaned resources that were removed from templates.
+
+## Delete release — `ct delete`
+
+Delete all resources tracked in release inventory:
+
+```bash
+ct delete my-app --namespace production
+ct delete my-app --namespace staging --context staging
+```
+
+`ct delete` does not require source path or repo URL. It deletes resources based on the latest saved inventory.
 
 ## Development mode — `ct dev`
 
@@ -345,22 +370,30 @@ ct dev --context staging
 ct init [flags]
   -d, --dir string   project directory (default ".")
 
-ct template <dir> [flags]
+ct template <name> <dir|repo> [flags]
+      --no-cache          skip cache, re-download remote source
   -n, --namespace string   default namespace for resources
   -f, --values string      path to values file (JSON or YAML, overrides auto-detect)
   -o, --output string      output format: yaml or json (default "yaml")
       --set stringArray    override values (e.g. --set replicas=5)
 
-ct apply <dir> [flags]
+ct apply <name> <dir|repo> [flags]
+      --no-cache          skip cache, re-download remote source
   -n, --namespace string   target namespace for resources
   -f, --values string      path to values file (JSON or YAML, overrides auto-detect)
   -o, --output string      output format: yaml or json (default: no output)
       --set stringArray    override values (e.g. --set replicas=5)
       --context string     kubeconfig context to use
 
+ct delete <name> [flags]
+  -n, --namespace string   namespace where release inventory is stored
+      --context string     kubeconfig context to use
+
 ct dev [flags]
       --env-file string    path to .env file (empty to skip) (default ".env")
       --context string     kubeconfig context
+      --name string        release name used for labels/inventory (default "dev")
+      --delete             delete dev resources from inventory and exit
 
 ct types [dir] [flags]
       --output string      output directory (default ~/.ct/types/<project-hash>)

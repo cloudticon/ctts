@@ -208,6 +208,10 @@ func generateGlobalsDts(operator bool) string {
 	var buf strings.Builder
 	buf.WriteString("/// <reference path=\"./values.d.ts\" />\n\n")
 	buf.WriteString("declare const Values: CtValues;\n")
+	buf.WriteString("declare const Release: {\n")
+	buf.WriteString("  readonly name: string;\n")
+	buf.WriteString("  readonly namespace: string;\n")
+	buf.WriteString("};\n")
 
 	if operator {
 		buf.WriteString("\ndeclare function getStatus<T>(resource: T): any;\n")

@@ -72,6 +72,21 @@ func Resolve(rawURL string) (string, error) {
 	return pkgDir, nil
 }
 
+// Invalidate removes cached package directory for the provided package URL.
+func Invalidate(rawURL string) error {
+	ref, err := ParsePackageURL(rawURL)
+	if err != nil {
+		return err
+	}
+
+	cacheBase, err := CacheDir()
+	if err != nil {
+		return err
+	}
+
+	return os.RemoveAll(filepath.Join(cacheBase, ref.CacheKey()))
+}
+
 func download(ref *PackageRef, destDir string) error {
 	tmpDir, err := os.MkdirTemp("", "ct-download-*")
 	if err != nil {

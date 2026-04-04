@@ -22,13 +22,24 @@ func TestTemplateCmd_MissingMainCt(t *testing.T) {
 	dir := t.TempDir()
 
 	cmd := newTemplateCmd()
-	cmd.SetArgs([]string{dir})
+	cmd.SetArgs([]string{"test-release", dir})
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
 
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "entry point not found")
+}
+
+func TestTemplateCmd_RequiresReleaseNameAndSource(t *testing.T) {
+	cmd := newTemplateCmd()
+	cmd.SetArgs([]string{"test-release"})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "accepts 2 arg(s)")
 }
 
 func TestTemplateCmd_AutoDetectsValuesJSON(t *testing.T) {
@@ -52,4 +63,11 @@ func TestTemplateCmd_NoValuesFile(t *testing.T) {
 	dir := t.TempDir()
 	path := resolveValuesPath(dir, "")
 	assert.Equal(t, "", path)
+}
+
+func TestTemplateCmd_NoCacheFlagDefault(t *testing.T) {
+	cmd := newTemplateCmd()
+	noCache, err := cmd.Flags().GetBool("no-cache")
+	require.NoError(t, err)
+	assert.False(t, noCache)
 }

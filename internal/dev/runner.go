@@ -18,12 +18,14 @@ import (
 )
 
 type RunOpts struct {
-	Dir     string
-	EnvFile string
-	KubeCtx string
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
+	Dir         string
+	EnvFile     string
+	KubeCtx     string
+	ReleaseName string
+	Delete      bool
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Stderr      io.Writer
 }
 
 type kubeApplier interface {
@@ -58,6 +60,40 @@ var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[strin
 		Polling: rule.Polling,
 	})
 	return syncer.Run(ctx)
+}
+
+var injectReleaseLabelsFn = k8s.InjectReleaseLabels
+
+var saveInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string, resources []engine.Resource) error {
+	k8sClient, ok := client.(*k8s.Client)
+	if !ok {
+		return fmt.Errorf("unsupported kubernetes client type %T for inventory", client)
+	}
+	return k8s.SaveInventory(ctx, k8sClient, namespace, releaseName, resources)
+}
+
+var loadInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string) ([]k8s.ResourceRef, error) {
+	k8sClient, ok := client.(*k8s.Client)
+	if !ok {
+		return nil, fmt.Errorf("unsupported kubernetes client type %T for inventory", client)
+	}
+	return k8s.LoadInventory(ctx, k8sClient, namespace, releaseName)
+}
+
+var deleteResourcesFn = func(ctx context.Context, client kubeApplier, resources []k8s.ResourceRef) error {
+	k8sClient, ok := client.(*k8s.Client)
+	if !ok {
+		return fmt.Errorf("unsupported kubernetes client type %T for delete", client)
+	}
+	return k8sClient.Delete(ctx, resources)
+}
+
+var deleteInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string) error {
+	k8sClient, ok := client.(*k8s.Client)
+	if !ok {
+		return fmt.Errorf("unsupported kubernetes client type %T for delete inventory", client)
+	}
+	return k8s.DeleteInventory(ctx, k8sClient, namespace, releaseName)
 }
 
 var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []Target, stdout io.Writer) error {
@@ -218,6 +254,10 @@ func Run(ctx context.Context, opts RunOpts) error {
 		return fmt.Errorf("executing dev.ct: %w", err)
 	}
 
+	if normalizedOpts.Delete {
+		return runDevDelete(ctx, normalizedOpts, devResult.Namespace)
+	}
+
 	targets, err := convertTargets(devResult.Targets)
 	if err != nil {
 		return err
@@ -233,6 +273,8 @@ func Run(ctx context.Context, opts RunOpts) error {
 	}
 	PatchResources(resources, targets)
 
+	resources = injectReleaseLabelsFn(resources, normalizedOpts.ReleaseName)
+
 	client, err := newK8sClient(normalizedOpts.KubeCtx, devResult.Namespace)
 	if err != nil {
 		return fmt.Errorf("creating k8s client: %w", err)
@@ -242,6 +284,10 @@ func Run(ctx context.Context, opts RunOpts) error {
 		return fmt.Errorf("applying resources: %w", err)
 	}
 
+	if err := saveInventoryFn(ctx, client, devResult.Namespace, normalizedOpts.ReleaseName, resources); err != nil {
+		return fmt.Errorf("saving inventory: %w", err)
+	}
+
 	if err := startDevFeatures(ctx, client, targets, normalizedOpts.Stdout); err != nil {
 		return fmt.Errorf("starting dev features: %w", err)
 	}
@@ -249,10 +295,36 @@ func Run(ctx context.Context, opts RunOpts) error {
 	return nil
 }
 
+func runDevDelete(ctx context.Context, opts RunOpts, namespace string) error {
+	client, err := newK8sClient(opts.KubeCtx, namespace)
+	if err != nil {
+		return fmt.Errorf("creating k8s client: %w", err)
+	}
+
+	resources, err := loadInventoryFn(ctx, client, namespace, opts.ReleaseName)
+	if err != nil {
+		return fmt.Errorf("loading inventory for release %q: %w", opts.ReleaseName, err)
+	}
+
+	if err := deleteResourcesFn(ctx, client, resources); err != nil {
+		return fmt.Errorf("deleting dev resources: %w", err)
+	}
+
+	if err := deleteInventoryFn(ctx, client, namespace, opts.ReleaseName); err != nil {
+		return fmt.Errorf("deleting dev inventory: %w", err)
+	}
+
+	fmt.Fprintf(opts.Stdout, "deleted dev environment %s (%d resources)\n", opts.ReleaseName, len(resources))
+	return nil
+}
+
 func normalizeRunOpts(opts RunOpts) (RunOpts, error) {
 	result := opts
 	if result.Dir == "" {
 		result.Dir = "."
+	}
+	if result.ReleaseName == "" {
+		result.ReleaseName = "dev"
 	}
 
 	absDir, err := filepath.Abs(result.Dir)

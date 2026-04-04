@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/cloudticon/ctts/internal/output"
 	"github.com/cloudticon/ctts/pkg/k8s"
@@ -17,12 +18,12 @@ func newApplyCmd() *cobra.Command {
 	var opts applyOpts
 
 	cmd := &cobra.Command{
-		Use:   "apply <dir>",
+		Use:   "apply <name> <dir|repo>",
 		Short: "Render and apply Kubernetes manifests to a cluster",
-		Long:  "Bundles and executes main.ct from the given directory, then applies the resulting manifests via server-side apply.",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Bundles and executes main.ct from the given directory, then applies the resulting manifests via server-side apply. Injects release labels, tracks inventory, and prunes orphaned resources.",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runApply(cmd, args[0], opts)
+			return runApply(cmd, args[0], args[1], opts)
 		},
 	}
 
@@ -30,6 +31,7 @@ func newApplyCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.valuesFile, "values", "f", "", "path to values file (JSON or YAML, overrides auto-detect)")
 	cmd.Flags().StringVarP(&opts.outputFmt, "output", "o", "", "output format: yaml or json (default: no output)")
 	cmd.Flags().StringArrayVar(&opts.setValues, "set", nil, "override values (e.g. --set replicas=5)")
+	cmd.Flags().BoolVar(&opts.noCache, "no-cache", false, "skip cache, re-download remote source")
 	cmd.Flags().StringVar(&opts.context, "context", "", "kubeconfig context to use")
 
 	return cmd
@@ -39,19 +41,50 @@ func init() {
 	rootCmd.AddCommand(newApplyCmd())
 }
 
-func runApply(cmd *cobra.Command, dir string, opts applyOpts) error {
-	resources, err := renderResources(dir, opts.templateOpts)
+func runApply(cmd *cobra.Command, releaseName, source string, opts applyOpts) error {
+	resolvedDir, err := resolveSourceDir(source, opts.noCache)
 	if err != nil {
 		return err
 	}
+
+	opts.templateOpts.releaseName = releaseName
+	resources, err := renderResources(resolvedDir, opts.templateOpts)
+	if err != nil {
+		return err
+	}
+
+	resources = k8s.InjectReleaseLabels(resources, releaseName)
 
 	client, err := k8s.NewClient(opts.context, opts.namespace)
 	if err != nil {
 		return fmt.Errorf("creating k8s client: %w", err)
 	}
 
+	oldRefs, err := k8s.LoadInventory(cmd.Context(), client, opts.namespace, releaseName)
+	if err != nil {
+		return fmt.Errorf("loading inventory: %w", err)
+	}
+
+	newRefs, err := k8s.ResourcesToRefs(resources)
+	if err != nil {
+		return fmt.Errorf("building resource refs: %w", err)
+	}
+
+	orphaned := k8s.ComputeOrphaned(oldRefs, newRefs)
+
 	if err := client.Apply(cmd.Context(), resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
+	}
+
+	if len(orphaned) > 0 {
+		log.Printf("pruning %d orphaned resource(s)", len(orphaned))
+		if err := client.Delete(cmd.Context(), orphaned); err != nil {
+			return fmt.Errorf("pruning orphaned resources: %w", err)
+		}
+	}
+
+	if err := k8s.SaveInventory(cmd.Context(), client, opts.namespace, releaseName, resources); err != nil {
+		return fmt.Errorf("saving inventory: %w", err)
 	}
 
 	if opts.outputFmt != "" {

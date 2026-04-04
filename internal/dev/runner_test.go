@@ -460,3 +460,183 @@ func TestStartDevFeatures_StartsLogsWhenNoTerminal(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"api", "web"}, logCalls, "logs should start for all targets when no terminal")
 }
+
+func TestNormalizeRunOpts_DefaultsReleaseNameToDev(t *testing.T) {
+	result, err := normalizeRunOpts(RunOpts{Dir: t.TempDir()})
+	require.NoError(t, err)
+	assert.Equal(t, "dev", result.ReleaseName)
+}
+
+func TestNormalizeRunOpts_PreservesExplicitReleaseName(t *testing.T) {
+	result, err := normalizeRunOpts(RunOpts{Dir: t.TempDir(), ReleaseName: "my-dev"})
+	require.NoError(t, err)
+	assert.Equal(t, "my-dev", result.ReleaseName)
+}
+
+func saveDevDeleteSeams(t *testing.T) {
+	t.Helper()
+	origNewK8s := newK8sClient
+	origLoad := loadInventoryFn
+	origDeleteRes := deleteResourcesFn
+	origDeleteInv := deleteInventoryFn
+	t.Cleanup(func() {
+		newK8sClient = origNewK8s
+		loadInventoryFn = origLoad
+		deleteResourcesFn = origDeleteRes
+		deleteInventoryFn = origDeleteInv
+	})
+}
+
+func TestRunDevDelete_DeletesResourcesAndInventory(t *testing.T) {
+	saveDevDeleteSeams(t)
+
+	expectedClient := &k8s.Client{}
+	expectedResources := []k8s.ResourceRef{
+		{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "test-ns", Name: "web"},
+		{APIVersion: "v1", Kind: "Service", Namespace: "test-ns", Name: "web-svc"},
+	}
+	var flow []string
+
+	newK8sClient = func(kubeCtx, namespace string) (kubeApplier, error) {
+		assert.Equal(t, "staging", kubeCtx)
+		assert.Equal(t, "test-ns", namespace)
+		flow = append(flow, "new-client")
+		return expectedClient, nil
+	}
+	loadInventoryFn = func(_ context.Context, client kubeApplier, namespace, releaseName string) ([]k8s.ResourceRef, error) {
+		assert.Same(t, expectedClient, client)
+		assert.Equal(t, "test-ns", namespace)
+		assert.Equal(t, "dev", releaseName)
+		flow = append(flow, "load-inventory")
+		return expectedResources, nil
+	}
+	deleteResourcesFn = func(_ context.Context, client kubeApplier, resources []k8s.ResourceRef) error {
+		assert.Same(t, expectedClient, client)
+		assert.Equal(t, expectedResources, resources)
+		flow = append(flow, "delete-resources")
+		return nil
+	}
+	deleteInventoryFn = func(_ context.Context, client kubeApplier, namespace, releaseName string) error {
+		assert.Same(t, expectedClient, client)
+		assert.Equal(t, "test-ns", namespace)
+		assert.Equal(t, "dev", releaseName)
+		flow = append(flow, "delete-inventory")
+		return nil
+	}
+
+	stdout := &bytes.Buffer{}
+	err := runDevDelete(context.Background(), RunOpts{
+		KubeCtx:     "staging",
+		ReleaseName: "dev",
+		Stdout:      stdout,
+	}, "test-ns")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"new-client", "load-inventory", "delete-resources", "delete-inventory"}, flow)
+	assert.Contains(t, stdout.String(), "deleted dev environment dev (2 resources)")
+}
+
+func TestRunDevDelete_ReturnsErrorWhenClientCreationFails(t *testing.T) {
+	saveDevDeleteSeams(t)
+
+	newK8sClient = func(_, _ string) (kubeApplier, error) {
+		return nil, errors.New("client boom")
+	}
+
+	err := runDevDelete(context.Background(), RunOpts{
+		ReleaseName: "dev",
+		Stdout:      &bytes.Buffer{},
+	}, "ns")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "creating k8s client")
+}
+
+func TestRunDevDelete_ReturnsErrorWhenLoadInventoryFails(t *testing.T) {
+	saveDevDeleteSeams(t)
+
+	newK8sClient = func(_, _ string) (kubeApplier, error) {
+		return &k8s.Client{}, nil
+	}
+	loadInventoryFn = func(_ context.Context, _ kubeApplier, _, _ string) ([]k8s.ResourceRef, error) {
+		return nil, errors.New("inventory boom")
+	}
+
+	err := runDevDelete(context.Background(), RunOpts{
+		ReleaseName: "dev",
+		Stdout:      &bytes.Buffer{},
+	}, "ns")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "loading inventory for release")
+}
+
+func TestRunDevDelete_ReturnsErrorWhenDeleteResourcesFails(t *testing.T) {
+	saveDevDeleteSeams(t)
+
+	newK8sClient = func(_, _ string) (kubeApplier, error) {
+		return &k8s.Client{}, nil
+	}
+	loadInventoryFn = func(_ context.Context, _ kubeApplier, _, _ string) ([]k8s.ResourceRef, error) {
+		return []k8s.ResourceRef{{APIVersion: "v1", Kind: "Service", Namespace: "ns", Name: "svc"}}, nil
+	}
+	deleteResourcesFn = func(_ context.Context, _ kubeApplier, _ []k8s.ResourceRef) error {
+		return errors.New("delete boom")
+	}
+
+	err := runDevDelete(context.Background(), RunOpts{
+		ReleaseName: "dev",
+		Stdout:      &bytes.Buffer{},
+	}, "ns")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "deleting dev resources")
+}
+
+func TestRunDevDelete_ReturnsErrorWhenDeleteInventoryFails(t *testing.T) {
+	saveDevDeleteSeams(t)
+
+	newK8sClient = func(_, _ string) (kubeApplier, error) {
+		return &k8s.Client{}, nil
+	}
+	loadInventoryFn = func(_ context.Context, _ kubeApplier, _, _ string) ([]k8s.ResourceRef, error) {
+		return []k8s.ResourceRef{}, nil
+	}
+	deleteResourcesFn = func(_ context.Context, _ kubeApplier, _ []k8s.ResourceRef) error {
+		return nil
+	}
+	deleteInventoryFn = func(_ context.Context, _ kubeApplier, _, _ string) error {
+		return errors.New("cleanup boom")
+	}
+
+	err := runDevDelete(context.Background(), RunOpts{
+		ReleaseName: "dev",
+		Stdout:      &bytes.Buffer{},
+	}, "ns")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "deleting dev inventory")
+}
+
+func TestRunDevDelete_UsesCustomReleaseName(t *testing.T) {
+	saveDevDeleteSeams(t)
+
+	var capturedReleaseName string
+	newK8sClient = func(_, _ string) (kubeApplier, error) {
+		return &k8s.Client{}, nil
+	}
+	loadInventoryFn = func(_ context.Context, _ kubeApplier, _, releaseName string) ([]k8s.ResourceRef, error) {
+		capturedReleaseName = releaseName
+		return []k8s.ResourceRef{}, nil
+	}
+	deleteResourcesFn = func(_ context.Context, _ kubeApplier, _ []k8s.ResourceRef) error {
+		return nil
+	}
+	deleteInventoryFn = func(_ context.Context, _ kubeApplier, _, _ string) error {
+		return nil
+	}
+
+	stdout := &bytes.Buffer{}
+	err := runDevDelete(context.Background(), RunOpts{
+		ReleaseName: "dev-alice",
+		Stdout:      stdout,
+	}, "ns")
+	require.NoError(t, err)
+	assert.Equal(t, "dev-alice", capturedReleaseName)
+	assert.Contains(t, stdout.String(), "deleted dev environment dev-alice")
+}

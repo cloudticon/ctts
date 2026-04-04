@@ -133,6 +133,31 @@ func TestExecute_ValuesInjected(t *testing.T) {
 	assert.Equal(t, "nginx:1.25", data["image"])
 }
 
+func TestExecute_ReleaseInjected(t *testing.T) {
+	js := `
+		globalThis.__ct_resources.push({
+			__ctts_scope: "namespaced",
+			apiVersion: "v1",
+			kind: "ConfigMap",
+			metadata: { name: globalThis.Release.name },
+			data: { namespace: globalThis.Release.namespace },
+		});
+	`
+	resources, err := engine.Execute(engine.ExecuteOpts{
+		JSCode:      js,
+		Namespace:   "production",
+		ReleaseName: "my-release",
+	})
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	meta := resources[0]["metadata"].(map[string]interface{})
+	assert.Equal(t, "my-release", meta["name"])
+
+	data := resources[0]["data"].(map[string]interface{})
+	assert.Equal(t, "production", data["namespace"])
+}
+
 func TestExecute_MultipleResources_OrderPreserved(t *testing.T) {
 	js := `
 		globalThis.__ct_resources.push({
