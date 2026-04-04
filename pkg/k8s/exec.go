@@ -8,9 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
-	"syscall"
-
 	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,13 +57,13 @@ func newTermSizeQueue(fd int) *termSizeQueue {
 		q.resizeCh <- remotecommand.TerminalSize{Width: uint16(w), Height: uint16(h)}
 	}
 
-	signal.Notify(q.sigCh, syscall.SIGWINCH)
+	notifyResize(q.sigCh)
 	go q.monitor(fd)
 	return q
 }
 
 func (q *termSizeQueue) monitor(fd int) {
-	defer signal.Stop(q.sigCh)
+	defer stopResize(q.sigCh)
 	for {
 		select {
 		case <-q.sigCh:
