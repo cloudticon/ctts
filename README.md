@@ -46,7 +46,7 @@ Or build from source:
 ```bash
 git clone https://github.com/cloudticon/ct.git
 cd ct
-go build -o ct ./cmd/ct
+go build -ldflags="-s -w" -o ct ./cmd/ct
 ```
 
 ## Quick start
@@ -442,8 +442,8 @@ pkg/
 # Run all tests
 go test ./...
 
-# Build
-go build -o ct ./cmd/ct
+# Build (strip debug symbols for smaller binary)
+go build -ldflags="-s -w" -o ct ./cmd/ct
 ```
 
 ## License

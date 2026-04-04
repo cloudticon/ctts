@@ -11,7 +11,6 @@ import (
 	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
 )
 
@@ -20,7 +19,11 @@ var (
 	execStreamRunnerFn    = ExecStream
 	buildExecURLFn        = buildExecURL
 	newExecExecutorForURL = remotecommand.NewSPDYExecutor
-	parameterCodec        runtime.ParameterCodec = scheme.ParameterCodec
+	parameterCodec runtime.ParameterCodec = func() runtime.ParameterCodec {
+		s := runtime.NewScheme()
+		_ = corev1.AddToScheme(s)
+		return runtime.NewParameterCodec(s)
+	}()
 
 	makeRawFn     = func(fd int) (*term.State, error) { return term.MakeRaw(fd) }
 	restoreTermFn = func(fd int, oldState *term.State) error { return term.Restore(fd, oldState) }
@@ -179,11 +182,11 @@ func ExecStream(ctx context.Context, c *Client, pod string, cmd []string, opts E
 }
 
 func buildExecURL(c *Client, pod string, cmd []string, opts ExecStreamOpts) (*url.URL, error) {
-	if c.Clientset == nil {
-		return nil, errors.New("kubernetes clientset is required")
+	if c.CoreV1 == nil {
+		return nil, errors.New("kubernetes core/v1 client is required")
 	}
 
-	req := c.Clientset.CoreV1().RESTClient().
+	req := c.CoreV1.RESTClient().
 		Post().
 		Resource("pods").
 		Namespace(c.Namespace).

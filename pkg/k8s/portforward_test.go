@@ -106,7 +106,7 @@ func TestWaitForPod_ReturnsRunningPodFromList(t *testing.T) {
 			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
 		},
 	)
-	client := NewClientFromInterfaces(clientset, nil, "dev-ns")
+	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 
 	pod, err := waitForPod(context.Background(), client, map[string]string{"app": "web"})
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestWaitForPod_WaitsForRunningPodOnWatch(t *testing.T) {
 		return true, w, nil
 	})
 
-	client := NewClientFromInterfaces(clientset, nil, "dev-ns")
+	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

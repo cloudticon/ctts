@@ -76,7 +76,7 @@ func (c *Client) resolveResourceInfo(apiVersion, kind string) (*resourceInfo, er
 		return nil, fmt.Errorf("parsing apiVersion %q: %w", apiVersion, err)
 	}
 
-	resourceList, err := c.Clientset.Discovery().ServerResourcesForGroupVersion(apiVersion)
+	resourceList, err := c.Discovery.ServerResourcesForGroupVersion(apiVersion)
 	if err != nil {
 		return nil, fmt.Errorf("discovering resources for %s: %w", apiVersion, err)
 	}

@@ -47,7 +47,7 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -o ct-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/ct
+        run: go build -ldflags="-s -w" -o ct-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }} ./cmd/ct
       - uses: actions/upload-artifact@v4
         with:
           name: ct-${{ matrix.goos }}-${{ matrix.goarch }}

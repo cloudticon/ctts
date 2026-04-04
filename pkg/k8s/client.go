@@ -4,14 +4,16 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 type Client struct {
-	Clientset kubernetes.Interface
+	CoreV1    corev1client.CoreV1Interface
+	Discovery discovery.DiscoveryInterface
 	Dynamic   dynamic.Interface
 	Config    *rest.Config
 	Namespace string
@@ -53,9 +55,14 @@ func NewClient(kubeContext, namespace string) (*Client, error) {
 		}
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	coreClient, err := corev1client.NewForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("creating kubernetes clientset: %w", err)
+		return nil, fmt.Errorf("creating core/v1 client: %w", err)
+	}
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("creating discovery client: %w", err)
 	}
 
 	dynamicClient, err := dynamic.NewForConfig(config)
@@ -64,7 +71,8 @@ func NewClient(kubeContext, namespace string) (*Client, error) {
 	}
 
 	return &Client{
-		Clientset: clientset,
+		CoreV1:    coreClient,
+		Discovery: discoveryClient,
 		Dynamic:   dynamicClient,
 		Config:    config,
 		Namespace: namespace,
@@ -73,9 +81,10 @@ func NewClient(kubeContext, namespace string) (*Client, error) {
 }
 
 // NewClientFromInterfaces creates a Client from pre-built interfaces (for testing).
-func NewClientFromInterfaces(clientset kubernetes.Interface, dyn dynamic.Interface, namespace string) *Client {
+func NewClientFromInterfaces(coreV1 corev1client.CoreV1Interface, disc discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string) *Client {
 	return &Client{
-		Clientset: clientset,
+		CoreV1:    coreV1,
+		Discovery: disc,
 		Dynamic:   dyn,
 		Namespace: namespace,
 		gvrCache:  make(map[string]*resourceInfo),

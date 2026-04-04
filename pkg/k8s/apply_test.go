@@ -35,7 +35,8 @@ func newTestClient(t *testing.T, apiResources []*metav1.APIResourceList) (*Clien
 	fakeClient.Fake.Resources = apiResources
 
 	c := &Client{
-		Clientset: fakeClient,
+		CoreV1:    fakeClient.CoreV1(),
+		Discovery: fakeClient.Discovery(),
 		Dynamic:   dynClient,
 		Namespace: "default",
 		gvrCache:  make(map[string]*resourceInfo),
@@ -113,7 +114,7 @@ func TestResolveResourceInfo_Discovery(t *testing.T) {
 	}
 
 	c := &Client{
-		Clientset: fakeClient,
+		Discovery: fakeClient.Discovery(),
 		gvrCache:  make(map[string]*resourceInfo),
 	}
 
@@ -144,7 +145,7 @@ func TestResolveResourceInfo_KindNotFound(t *testing.T) {
 	}
 
 	c := &Client{
-		Clientset: fakeClient,
+		Discovery: fakeClient.Discovery(),
 		gvrCache:  make(map[string]*resourceInfo),
 	}
 

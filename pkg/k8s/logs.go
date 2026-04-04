@@ -72,11 +72,11 @@ func StreamLogs(ctx context.Context, c *Client, targetName string, selector map[
 }
 
 func streamPodLogs(ctx context.Context, c *Client, pod string) (io.ReadCloser, error) {
-	if c.Clientset == nil {
-		return nil, errors.New("kubernetes clientset is required")
+	if c.CoreV1 == nil {
+		return nil, errors.New("kubernetes core/v1 client is required")
 	}
 
-	req := c.Clientset.CoreV1().Pods(c.Namespace).GetLogs(pod, &corev1.PodLogOptions{
+	req := c.CoreV1.Pods(c.Namespace).GetLogs(pod, &corev1.PodLogOptions{
 		Follow: true,
 	})
 	stream, err := req.Stream(ctx)

@@ -61,12 +61,12 @@ func PortForward(ctx context.Context, c *Client, selector map[string]string, por
 }
 
 func waitForPod(ctx context.Context, c *Client, selector map[string]string) (string, error) {
-	if c.Clientset == nil {
-		return "", errors.New("kubernetes clientset is required")
+	if c.CoreV1 == nil {
+		return "", errors.New("kubernetes core/v1 client is required")
 	}
 
 	labelSelector := labels.Set(selector).String()
-	podsClient := c.Clientset.CoreV1().Pods(c.Namespace)
+	podsClient := c.CoreV1.Pods(c.Namespace)
 
 	list, err := podsClient.List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 	if err != nil {
@@ -105,11 +105,11 @@ func forwardPorts(ctx context.Context, c *Client, pod string, ports []PortRule) 
 	if c.Config == nil {
 		return errors.New("rest config is required for port-forwarding")
 	}
-	if c.Clientset == nil {
-		return errors.New("kubernetes clientset is required for port-forwarding")
+	if c.CoreV1 == nil {
+		return errors.New("kubernetes core/v1 client is required for port-forwarding")
 	}
 
-	reqURL := c.Clientset.CoreV1().RESTClient().
+	reqURL := c.CoreV1.RESTClient().
 		Post().
 		Resource("pods").
 		Namespace(c.Namespace).
