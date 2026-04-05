@@ -11,11 +11,19 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cloudticon/ctts/pkg/engine"
 	"github.com/cloudticon/ctts/pkg/k8s"
 	ctsync "github.com/cloudticon/ctts/pkg/sync"
+	"k8s.io/klog/v2"
 )
+
+var devLog = log.New(os.Stderr, "", log.LstdFlags)
+
+const maxSessionRetries = 5
+
+var sessionEstablishedThreshold = 10 * time.Second
 
 type RunOpts struct {
 	Dir             string
@@ -37,6 +45,10 @@ var newK8sClient = func(kubeCtx, namespace string) (kubeApplier, error) {
 	return k8s.NewClient(kubeCtx, namespace)
 }
 
+var runWaitForPodFn = func(ctx context.Context, client *k8s.Client, selector map[string]string) (string, error) {
+	return k8s.WaitForPod(ctx, client, selector)
+}
+
 var runTerminalFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, command string) error {
 	return k8s.Exec(ctx, client, selector, command)
 }
@@ -51,6 +63,10 @@ var runPortForwardFn = func(ctx context.Context, client *k8s.Client, selector ma
 
 var runLogsFn = func(ctx context.Context, client *k8s.Client, targetName string, selector map[string]string, w io.Writer) error {
 	return k8s.StreamLogs(ctx, client, targetName, selector, w)
+}
+
+var runWatchPodHealthFn = func(ctx context.Context, client *k8s.Client, podName string) error {
+	return k8s.WatchPodHealth(ctx, client, podName)
 }
 
 var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, rule SyncRule) error {
@@ -110,9 +126,48 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 	if !ok {
 		return fmt.Errorf("unsupported kubernetes client type %T", client)
 	}
-
 	if len(targets) == 0 {
 		return nil
+	}
+
+	hasTerminal := hasTerminalTarget(targets)
+
+	for attempt := 0; ; attempt++ {
+		sessionStart := time.Now()
+		err := runDevSession(ctx, k8sClient, targets, stdout, hasTerminal, attempt > 0)
+
+		if err == nil || ctx.Err() != nil {
+			return err
+		}
+		if !hasTerminal {
+			return err
+		}
+		if isTerminalExitCode130(err) {
+			return nil
+		}
+		if isCommandExit(err) && !isPodKilledExit(err) {
+			return err
+		}
+		if time.Since(sessionStart) >= sessionEstablishedThreshold {
+			attempt = 0
+		}
+		if attempt >= maxSessionRetries-1 {
+			return fmt.Errorf("session failed after %d attempts: %w", attempt+1, err)
+		}
+
+		devLog.Printf("[terminal] disconnected: %v", err)
+		devLog.Printf("[terminal] waiting for pod to restart (attempt %d/%d)...", attempt+2, maxSessionRetries)
+	}
+}
+
+func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target, stdout io.Writer, hasTerminal bool, reconnect bool) error {
+	podNames := make(map[string]string, len(targets))
+	for _, t := range targets {
+		podName, err := runWaitForPodFn(ctx, k8sClient, t.Selector)
+		if err != nil {
+			return err
+		}
+		podNames[t.Name] = podName
 	}
 
 	featuresCtx, cancel := context.WithCancel(ctx)
@@ -133,19 +188,6 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 				cancel()
 			}
 		}()
-	}
-
-	hasTerminal := false
-	for _, t := range targets {
-		if strings.TrimSpace(t.Terminal) != "" {
-			hasTerminal = true
-			break
-		}
-	}
-	if hasTerminal {
-		originalLogOutput := log.Writer()
-		log.SetOutput(io.Discard)
-		defer log.SetOutput(originalLogOutput)
 	}
 
 	for _, target := range targets {
@@ -169,6 +211,13 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 				return runLogsFn(gctx, k8sClient, target.Name, target.Selector, stdout)
 			})
 		}
+
+		if hasTerminal && strings.TrimSpace(target.Terminal) != "" {
+			podName := podNames[target.Name]
+			startFeature(func(gctx context.Context) error {
+				return runWatchPodHealthFn(gctx, k8sClient, podName)
+			})
+		}
 	}
 
 	waitFeatures := func() error {
@@ -187,13 +236,40 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 		}
 	}
 
+	if hasTerminal {
+		origLogWriter := log.Writer()
+		origStderr := os.Stderr
+
+		log.SetOutput(io.Discard)
+		klog.SetOutput(io.Discard)
+
+		var devNullFile *os.File
+		if f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0); err == nil {
+			os.Stderr = f
+			devNullFile = f
+		}
+
+		defer func() {
+			if devNullFile != nil {
+				os.Stderr = origStderr
+				devNullFile.Close()
+			}
+			klog.SetOutput(origStderr)
+			log.SetOutput(origLogWriter)
+		}()
+	}
+
 	for _, target := range targets {
 		if strings.TrimSpace(target.Terminal) == "" {
 			continue
 		}
 
 		if stdout != nil {
-			fmt.Fprintf(stdout, "starting terminal for target %s\n", target.Name)
+			if reconnect {
+				fmt.Fprintf(stdout, "reconnecting terminal for target %s\n", target.Name)
+			} else {
+				fmt.Fprintf(stdout, "starting terminal for target %s\n", target.Name)
+			}
 		}
 
 		terminalErr := runTerminalFn(featuresCtx, k8sClient, target.Selector, terminalCommand(target))
@@ -201,9 +277,6 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 
 		if waitErr := waitFeatures(); waitErr != nil {
 			return waitErr
-		}
-		if isTerminalExitCode130(terminalErr) {
-			return nil
 		}
 		return terminalErr
 	}
@@ -231,6 +304,30 @@ func isTerminalExitCode130(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "exit code 130")
+}
+
+func isCommandExit(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "exit code")
+}
+
+func isPodKilledExit(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "exit code 137") || strings.Contains(msg, "exit code 143")
+}
+
+func hasTerminalTarget(targets []Target) bool {
+	for _, t := range targets {
+		if strings.TrimSpace(t.Terminal) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func Run(ctx context.Context, opts RunOpts) error {

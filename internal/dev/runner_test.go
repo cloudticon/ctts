@@ -114,17 +114,36 @@ func (fakeApplier) Apply(_ context.Context, _ []engine.Resource) error {
 	return nil
 }
 
-func TestStartDevFeatures_StartsAllFeaturesAndRunsTerminal(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
+func saveDevFeatureSeams(t *testing.T) {
+	t.Helper()
+	origPortForward := runPortForwardFn
+	origLogs := runLogsFn
+	origSync := runSyncFn
+	origTerminal := runTerminalFn
+	origWaitForPod := runWaitForPodFn
+	origWatchPodHealth := runWatchPodHealthFn
+	origDevLog := devLog
 	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
+		runPortForwardFn = origPortForward
+		runLogsFn = origLogs
+		runSyncFn = origSync
+		runTerminalFn = origTerminal
+		runWaitForPodFn = origWaitForPod
+		runWatchPodHealthFn = origWatchPodHealth
+		devLog = origDevLog
 	})
+	runWaitForPodFn = func(_ context.Context, _ *k8s.Client, _ map[string]string) (string, error) {
+		return "pod-stub", nil
+	}
+	runWatchPodHealthFn = func(ctx context.Context, _ *k8s.Client, _ string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	devLog = log.New(io.Discard, "", 0)
+}
+
+func TestStartDevFeatures_StartsAllFeaturesAndRunsTerminal(t *testing.T) {
+	saveDevFeatureSeams(t)
 
 	var mu sync.Mutex
 	var portCalls []string
@@ -189,16 +208,7 @@ func TestStartDevFeatures_StartsAllFeaturesAndRunsTerminal(t *testing.T) {
 }
 
 func TestStartDevFeatures_RunsTerminalInWorkingDir(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -230,17 +240,8 @@ func TestStartDevFeatures_RunsTerminalInWorkingDir(t *testing.T) {
 	assert.Equal(t, `cd "/workspace/app dir" && npm run dev`, terminalCmd)
 }
 
-func TestStartDevFeatures_SilencesGlobalLoggerAndRestoresOutput(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+func TestStartDevFeatures_SilencesGlobalLoggerDuringTerminalAndRestores(t *testing.T) {
+	saveDevFeatureSeams(t)
 
 	originalLogOutput := log.Writer()
 	logBuffer := &bytes.Buffer{}
@@ -256,10 +257,10 @@ func TestStartDevFeatures_SilencesGlobalLoggerAndRestoresOutput(t *testing.T) {
 		return nil
 	}
 	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
-		log.Printf("[sync] this should be silenced")
 		return nil
 	}
 	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		log.Printf("[during-terminal] should be silenced")
 		return nil
 	}
 
@@ -274,8 +275,10 @@ func TestStartDevFeatures_SilencesGlobalLoggerAndRestoresOutput(t *testing.T) {
 
 	err := startDevFeatures(context.Background(), &k8s.Client{}, targets, &bytes.Buffer{})
 	require.NoError(t, err)
-	assert.Empty(t, logBuffer.String(), "global logger output should be silenced while terminal is active")
-	assert.Same(t, logBuffer, log.Writer(), "global logger output should be restored after terminal exits")
+	assert.NotContains(t, logBuffer.String(), "[during-terminal] should be silenced",
+		"global logger output should be silenced while terminal is active")
+	assert.Same(t, logBuffer, log.Writer(),
+		"global logger output should be restored after terminal exits")
 }
 
 func TestStartDevFeatures_UnsupportedClientType(t *testing.T) {
@@ -285,16 +288,7 @@ func TestStartDevFeatures_UnsupportedClientType(t *testing.T) {
 }
 
 func TestStartDevFeatures_ReturnsTerminalError(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -316,16 +310,7 @@ func TestStartDevFeatures_ReturnsTerminalError(t *testing.T) {
 }
 
 func TestStartDevFeatures_IgnoresTerminalExitCode130(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -346,16 +331,7 @@ func TestStartDevFeatures_IgnoresTerminalExitCode130(t *testing.T) {
 }
 
 func TestStartDevFeatures_ReturnsBackgroundFeatureError(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -376,16 +352,7 @@ func TestStartDevFeatures_ReturnsBackgroundFeatureError(t *testing.T) {
 }
 
 func TestStartDevFeatures_SuppressesLogsWhenTerminalActive(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	logsCalled := false
 	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
@@ -416,16 +383,7 @@ func TestStartDevFeatures_SuppressesLogsWhenTerminalActive(t *testing.T) {
 }
 
 func TestStartDevFeatures_StartsLogsWhenNoTerminal(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	var mu sync.Mutex
 	var logCalls []string
@@ -694,4 +652,381 @@ func TestRunDevDelete_UsesCustomReleaseName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "dev-alice", capturedReleaseName)
 	assert.Contains(t, stdout.String(), "deleted dev environment dev-alice")
+}
+
+func TestStartDevFeatures_ReconnectsOnConnectionError(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	var mu sync.Mutex
+	var waitForPodCalls int
+	runWaitForPodFn = func(_ context.Context, _ *k8s.Client, _ map[string]string) (string, error) {
+		mu.Lock()
+		waitForPodCalls++
+		mu.Unlock()
+		return "pod-stub", nil
+	}
+
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	var terminalCalls int
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		mu.Lock()
+		terminalCalls++
+		call := terminalCalls
+		mu.Unlock()
+		if call == 1 {
+			return errors.New("connection lost")
+		}
+		return nil
+	}
+
+	stdout := &bytes.Buffer{}
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, stdout)
+	require.NoError(t, err)
+	assert.Equal(t, 2, waitForPodCalls, "waitForPod should be called once per session")
+	assert.Contains(t, stdout.String(), "starting terminal for target web")
+	assert.Contains(t, stdout.String(), "reconnecting terminal for target web")
+}
+
+func TestStartDevFeatures_NoRetryOnExitCode(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		return nil
+	}
+
+	var terminalCalls int
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		terminalCalls++
+		return errors.New("command terminated with exit code 1")
+	}
+
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, &bytes.Buffer{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exit code 1")
+	assert.Equal(t, 1, terminalCalls, "should not retry on exit code")
+}
+
+func TestStartDevFeatures_MaxRetriesExceeded(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	var terminalCalls int
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		terminalCalls++
+		return errors.New("connection refused")
+	}
+
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, &bytes.Buffer{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "session failed after 5 attempts")
+	assert.Contains(t, err.Error(), "connection refused")
+	assert.Equal(t, 5, terminalCalls)
+}
+
+func TestStartDevFeatures_NoRetryWithoutTerminal(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	var waitForPodCalls int
+	runWaitForPodFn = func(_ context.Context, _ *k8s.Client, _ map[string]string) (string, error) {
+		waitForPodCalls++
+		return "pod-stub", nil
+	}
+	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		return nil
+	}
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		return nil
+	}
+	runLogsFn = func(_ context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		return errors.New("logs stream broken")
+	}
+
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "api", Selector: map[string]string{"app": "api"}},
+	}, &bytes.Buffer{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "logs stream broken")
+	assert.Equal(t, 1, waitForPodCalls, "should not retry when no terminal target")
+}
+
+func TestStartDevFeatures_DevLogDisconnectMessage(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	var mu sync.Mutex
+	var terminalCalls int
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		mu.Lock()
+		terminalCalls++
+		call := terminalCalls
+		mu.Unlock()
+		if call == 1 {
+			return errors.New("connection lost")
+		}
+		return nil
+	}
+
+	logBuf := &bytes.Buffer{}
+	devLog = log.New(logBuf, "", 0)
+
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, &bytes.Buffer{})
+	require.NoError(t, err)
+	assert.Contains(t, logBuf.String(), "[terminal] disconnected: connection lost")
+	assert.Contains(t, logBuf.String(), "[terminal] waiting for pod to restart (attempt 2/5)")
+}
+
+func TestStartDevFeatures_RetriesOnExitCode137(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	var mu sync.Mutex
+	var waitForPodCalls int
+	runWaitForPodFn = func(_ context.Context, _ *k8s.Client, _ map[string]string) (string, error) {
+		mu.Lock()
+		waitForPodCalls++
+		mu.Unlock()
+		return "pod-stub", nil
+	}
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	var terminalCalls int
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		mu.Lock()
+		terminalCalls++
+		call := terminalCalls
+		mu.Unlock()
+		if call == 1 {
+			return errors.New("executing command in pod node-8d6ddf6c8-tr6qs: command terminated with exit code 137")
+		}
+		return nil
+	}
+
+	stdout := &bytes.Buffer{}
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, stdout)
+	require.NoError(t, err)
+	assert.Equal(t, 2, terminalCalls, "should retry after exit code 137 (SIGKILL)")
+	assert.Equal(t, 2, waitForPodCalls, "should wait for pod on each session")
+	assert.Contains(t, stdout.String(), "reconnecting terminal for target web")
+}
+
+func TestStartDevFeatures_RetriesOnExitCode143(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	var mu sync.Mutex
+	var terminalCalls int
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		mu.Lock()
+		terminalCalls++
+		call := terminalCalls
+		mu.Unlock()
+		if call == 1 {
+			return errors.New("command terminated with exit code 143")
+		}
+		return nil
+	}
+
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, &bytes.Buffer{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, terminalCalls, "should retry after exit code 143 (SIGTERM)")
+}
+
+func TestIsCommandExit(t *testing.T) {
+	assert.False(t, isCommandExit(nil))
+	assert.False(t, isCommandExit(errors.New("connection lost")))
+	assert.True(t, isCommandExit(errors.New("command terminated with exit code 1")))
+	assert.True(t, isCommandExit(errors.New("exit code 130")))
+}
+
+func TestIsPodKilledExit(t *testing.T) {
+	assert.False(t, isPodKilledExit(nil))
+	assert.False(t, isPodKilledExit(errors.New("connection lost")))
+	assert.False(t, isPodKilledExit(errors.New("exit code 1")))
+	assert.False(t, isPodKilledExit(errors.New("exit code 130")))
+	assert.True(t, isPodKilledExit(errors.New("command terminated with exit code 137")))
+	assert.True(t, isPodKilledExit(errors.New("command terminated with exit code 143")))
+}
+
+func TestHasTerminalTarget(t *testing.T) {
+	assert.False(t, hasTerminalTarget(nil))
+	assert.False(t, hasTerminalTarget([]Target{{Name: "api"}}))
+	assert.False(t, hasTerminalTarget([]Target{{Name: "api", Terminal: "  "}}))
+	assert.True(t, hasTerminalTarget([]Target{{Name: "api", Terminal: "bash"}}))
+	assert.True(t, hasTerminalTarget([]Target{
+		{Name: "api"},
+		{Name: "web", Terminal: "bash"},
+	}))
+}
+
+func TestStartDevFeatures_ResetsAttemptAfterEstablishedSession(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	origThreshold := sessionEstablishedThreshold
+	// Use 0 so any session counts as "established" in the test.
+	sessionEstablishedThreshold = 0
+	t.Cleanup(func() { sessionEstablishedThreshold = origThreshold })
+
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	var mu sync.Mutex
+	var terminalCalls int
+	// Fail 8 times total, succeed on 9th.
+	// Without reset this would exceed maxSessionRetries (5).
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		mu.Lock()
+		terminalCalls++
+		call := terminalCalls
+		mu.Unlock()
+		if call <= 8 {
+			return errors.New("connection lost")
+		}
+		return nil
+	}
+
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, &bytes.Buffer{})
+	require.NoError(t, err)
+	assert.Equal(t, 9, terminalCalls,
+		"should survive >5 disconnections when sessions are established (counter resets)")
+}
+
+func TestStartDevFeatures_HealthWatcherTriggersReconnect(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+
+	var mu sync.Mutex
+	var terminalCalls int
+	runTerminalFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		mu.Lock()
+		terminalCalls++
+		call := terminalCalls
+		mu.Unlock()
+		if call == 1 {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	}
+
+	var healthCalls int
+	runWatchPodHealthFn = func(ctx context.Context, _ *k8s.Client, _ string) error {
+		mu.Lock()
+		healthCalls++
+		call := healthCalls
+		mu.Unlock()
+		if call == 1 {
+			return errors.New("pod \"pod-stub\" is terminating")
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
+	stdout := &bytes.Buffer{}
+	err := startDevFeatures(context.Background(), &k8s.Client{}, []Target{
+		{Name: "web", Selector: map[string]string{"app": "web"}, Terminal: "bash"},
+	}, stdout)
+	require.NoError(t, err)
+	assert.Equal(t, 2, terminalCalls, "should reconnect after health watcher detects pod loss")
+	assert.Contains(t, stdout.String(), "reconnecting terminal for target web")
 }

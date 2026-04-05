@@ -8,9 +8,6 @@ import (
 	"log"
 	"net/http"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 )
@@ -25,11 +22,6 @@ var (
 	waitForPodFn   = waitForPod
 	forwardPortsFn = forwardPorts
 )
-
-// WaitForPod waits until a running pod matching selector is available.
-func WaitForPod(ctx context.Context, c *Client, selector map[string]string) (string, error) {
-	return waitForPod(ctx, c, selector)
-}
 
 // PortForward starts port forwarding for the selected workload and reconnects on connection loss.
 func PortForward(ctx context.Context, c *Client, selector map[string]string, ports []PortRule) error {
@@ -57,47 +49,6 @@ func PortForward(ctx context.Context, c *Client, selector map[string]string, por
 			continue
 		}
 		return nil
-	}
-}
-
-func waitForPod(ctx context.Context, c *Client, selector map[string]string) (string, error) {
-	if c.CoreV1 == nil {
-		return "", errors.New("kubernetes core/v1 client is required")
-	}
-
-	labelSelector := labels.Set(selector).String()
-	podsClient := c.CoreV1.Pods(c.Namespace)
-
-	list, err := podsClient.List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return "", fmt.Errorf("listing pods for selector %q: %w", labelSelector, err)
-	}
-	if podName, ok := firstRunningPodName(list.Items); ok {
-		return podName, nil
-	}
-
-	watcher, err := podsClient.Watch(ctx, metav1.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return "", fmt.Errorf("watching pods for selector %q: %w", labelSelector, err)
-	}
-	defer watcher.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case event, ok := <-watcher.ResultChan():
-			if !ok {
-				return "", errors.New("pod watch channel closed before a running pod appeared")
-			}
-			pod, ok := event.Object.(*corev1.Pod)
-			if !ok || pod == nil {
-				continue
-			}
-			if pod.Status.Phase == corev1.PodRunning {
-				return pod.Name, nil
-			}
-		}
 	}
 }
 
@@ -161,11 +112,3 @@ func toPFPorts(ports []PortRule) []string {
 	return result
 }
 
-func firstRunningPodName(pods []corev1.Pod) (string, bool) {
-	for _, pod := range pods {
-		if pod.Status.Phase == corev1.PodRunning {
-			return pod.Name, true
-		}
-	}
-	return "", false
-}

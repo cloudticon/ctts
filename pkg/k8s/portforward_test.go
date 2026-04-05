@@ -4,15 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/kubernetes/fake"
-	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestPortForward_ReconnectsAfterForwardError(t *testing.T) {
@@ -93,62 +87,6 @@ func TestPortForward_ValidatesInput(t *testing.T) {
 	err = PortForward(context.Background(), &Client{}, map[string]string{"app": "web"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one port rule is required")
-}
-
-func TestWaitForPod_ReturnsRunningPodFromList(t *testing.T) {
-	clientset := fake.NewSimpleClientset(
-		&corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: "pod-pending", Namespace: "dev-ns", Labels: map[string]string{"app": "web"}},
-			Status:     corev1.PodStatus{Phase: corev1.PodPending},
-		},
-		&corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: "pod-running", Namespace: "dev-ns", Labels: map[string]string{"app": "web"}},
-			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
-		},
-	)
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
-
-	pod, err := waitForPod(context.Background(), client, map[string]string{"app": "web"})
-	require.NoError(t, err)
-	assert.Equal(t, "pod-running", pod)
-}
-
-func TestWaitForPod_WaitsForRunningPodOnWatch(t *testing.T) {
-	clientset := fake.NewSimpleClientset()
-	w := watch.NewFake()
-
-	clientset.Fake.PrependWatchReactor("pods", func(action k8stesting.Action) (bool, watch.Interface, error) {
-		return true, w, nil
-	})
-
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	resultCh := make(chan struct {
-		pod string
-		err error
-	}, 1)
-	go func() {
-		pod, err := waitForPod(ctx, client, map[string]string{"app": "web"})
-		resultCh <- struct {
-			pod string
-			err error
-		}{pod: pod, err: err}
-	}()
-
-	w.Add(&corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "pod-running", Namespace: "dev-ns", Labels: map[string]string{"app": "web"}},
-		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
-	})
-
-	select {
-	case result := <-resultCh:
-		require.NoError(t, result.err)
-		assert.Equal(t, "pod-running", result.pod)
-	case <-time.After(2 * time.Second):
-		t.Fatal("waitForPod did not return after running pod event")
-	}
 }
 
 func TestToPFPorts(t *testing.T) {
