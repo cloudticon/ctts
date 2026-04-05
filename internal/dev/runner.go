@@ -89,12 +89,12 @@ var ensureNamespaceFn = func(ctx context.Context, client kubeApplier, namespace 
 	return k8s.EnsureNamespace(ctx, k8sClient, namespace)
 }
 
-var saveInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string, resources []engine.Resource) error {
+var applyReleaseFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string, resources []engine.Resource) error {
 	k8sClient, ok := client.(*k8s.Client)
 	if !ok {
-		return fmt.Errorf("unsupported kubernetes client type %T for inventory", client)
+		return fmt.Errorf("unsupported kubernetes client type %T for apply release", client)
 	}
-	return k8s.SaveInventory(ctx, k8sClient, namespace, releaseName, resources)
+	return k8sClient.ApplyRelease(ctx, namespace, releaseName, resources)
 }
 
 var loadInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string) ([]k8s.ResourceRef, error) {
@@ -408,12 +408,8 @@ func Run(ctx context.Context, opts RunOpts) error {
 		return err
 	}
 
-	if err := client.Apply(ctx, resources); err != nil {
+	if err := applyReleaseFn(ctx, client, devResult.Namespace, normalizedOpts.ReleaseName, resources); err != nil {
 		return fmt.Errorf("applying resources: %w", err)
-	}
-
-	if err := saveInventoryFn(ctx, client, devResult.Namespace, normalizedOpts.ReleaseName, resources); err != nil {
-		return fmt.Errorf("saving inventory: %w", err)
 	}
 
 	if err := startDevFeatures(ctx, client, targets, normalizedOpts.Stdout); err != nil {

@@ -117,24 +117,14 @@ func TestRunApply_CreatesNamespaceWhenEnabled(t *testing.T) {
 	origInjectLabels := injectReleaseLabelsForApply
 	origNewClient := newK8sClientForApply
 	origEnsureNamespace := ensureNamespaceForApply
-	origLoadInventory := loadInventoryForApply
-	origResourcesToRefs := resourcesToRefsForApply
-	origComputeOrphaned := computeOrphanedForApply
-	origApplyResources := applyResourcesForApply
-	origDeleteResources := deleteResourcesForApply
-	origSaveInventory := saveInventoryForApply
+	origApplyRelease := applyReleaseForApply
 	t.Cleanup(func() {
 		resolveSourceDirForApply = origResolveSourceDir
 		renderResourcesForApply = origRenderResources
 		injectReleaseLabelsForApply = origInjectLabels
 		newK8sClientForApply = origNewClient
 		ensureNamespaceForApply = origEnsureNamespace
-		loadInventoryForApply = origLoadInventory
-		resourcesToRefsForApply = origResourcesToRefs
-		computeOrphanedForApply = origComputeOrphaned
-		applyResourcesForApply = origApplyResources
-		deleteResourcesForApply = origDeleteResources
-		saveInventoryForApply = origSaveInventory
+		applyReleaseForApply = origApplyRelease
 	})
 
 	expectedClient := &k8s.Client{}
@@ -166,22 +156,7 @@ func TestRunApply_CreatesNamespaceWhenEnabled(t *testing.T) {
 		ensuredNamespace = namespace
 		return nil
 	}
-	loadInventoryForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) ([]k8s.ResourceRef, error) {
-		return []k8s.ResourceRef{}, nil
-	}
-	resourcesToRefsForApply = func(resources []k8s.Resource) ([]k8s.ResourceRef, error) {
-		return []k8s.ResourceRef{}, nil
-	}
-	computeOrphanedForApply = func(oldRefs, newRefs []k8s.ResourceRef) []k8s.ResourceRef {
-		return nil
-	}
-	applyResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.Resource) error {
-		return nil
-	}
-	deleteResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
-		return nil
-	}
-	saveInventoryForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string, resources []k8s.Resource) error {
+	applyReleaseForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string, resources []k8s.Resource) error {
 		return nil
 	}
 

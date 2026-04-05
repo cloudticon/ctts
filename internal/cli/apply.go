@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/cloudticon/ctts/internal/output"
 	"github.com/cloudticon/ctts/pkg/k8s"
@@ -21,16 +20,9 @@ var renderResourcesForApply = renderResources
 var injectReleaseLabelsForApply = k8s.InjectReleaseLabels
 var newK8sClientForApply = k8s.NewClient
 var ensureNamespaceForApply = k8s.EnsureNamespace
-var loadInventoryForApply = k8s.LoadInventory
-var resourcesToRefsForApply = k8s.ResourcesToRefs
-var computeOrphanedForApply = k8s.ComputeOrphaned
-var applyResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.Resource) error {
-	return client.Apply(ctx, resources)
+var applyReleaseForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string, resources []k8s.Resource) error {
+	return client.ApplyRelease(ctx, namespace, releaseName, resources)
 }
-var deleteResourcesForApply = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
-	return client.Delete(ctx, resources)
-}
-var saveInventoryForApply = k8s.SaveInventory
 
 func newApplyCmd() *cobra.Command {
 	var opts applyOpts
@@ -83,31 +75,8 @@ func runApply(cmd *cobra.Command, releaseName, source string, opts applyOpts) er
 		return err
 	}
 
-	oldRefs, err := loadInventoryForApply(cmd.Context(), client, opts.namespace, releaseName)
-	if err != nil {
-		return fmt.Errorf("loading inventory: %w", err)
-	}
-
-	newRefs, err := resourcesToRefsForApply(resources)
-	if err != nil {
-		return fmt.Errorf("building resource refs: %w", err)
-	}
-
-	orphaned := computeOrphanedForApply(oldRefs, newRefs)
-
-	if err := applyResourcesForApply(cmd.Context(), client, resources); err != nil {
+	if err := applyReleaseForApply(cmd.Context(), client, opts.namespace, releaseName, resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
-	}
-
-	if len(orphaned) > 0 {
-		log.Printf("pruning %d orphaned resource(s)", len(orphaned))
-		if err := deleteResourcesForApply(cmd.Context(), client, orphaned); err != nil {
-			return fmt.Errorf("pruning orphaned resources: %w", err)
-		}
-	}
-
-	if err := saveInventoryForApply(cmd.Context(), client, opts.namespace, releaseName, resources); err != nil {
-		return fmt.Errorf("saving inventory: %w", err)
 	}
 
 	if opts.outputFmt != "" {
