@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/fatih/color"
+
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 )
@@ -45,7 +47,7 @@ func PortForward(ctx context.Context, c *Client, selector map[string]string, por
 			if ctx.Err() != nil {
 				return nil
 			}
-			log.Printf("[port-forward] connection lost for pod %s, reconnecting: %v", pod, err)
+			log.Printf("%s connection lost for pod %s, reconnecting: %v", color.YellowString("[port-forward]"), pod, err)
 			continue
 		}
 		return nil
@@ -93,7 +95,7 @@ func forwardPorts(ctx context.Context, c *Client, pod string, ports []PortRule) 
 	go func() {
 		<-readyCh
 		for _, p := range ports {
-			log.Printf("[port-forward] localhost:%d -> %s:%d", p.Local, pod, p.Remote)
+			log.Printf("%s localhost:%d -> %s:%d", color.CyanString("[port-forward]"), p.Local, pod, p.Remote)
 		}
 	}()
 

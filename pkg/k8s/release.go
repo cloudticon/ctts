@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/fatih/color"
 )
 
 // ApplyRelease performs a full release cycle: loads existing inventory,
@@ -26,7 +28,7 @@ func (c *Client) ApplyRelease(ctx context.Context, namespace, releaseName string
 	}
 
 	if len(orphaned) > 0 {
-		log.Printf("pruning %d orphaned resource(s)", len(orphaned))
+		log.Printf("%s %d orphaned resource(s)", color.HiRedString("pruning"), len(orphaned))
 		if err := c.Delete(ctx, orphaned); err != nil {
 			return fmt.Errorf("pruning orphaned resources: %w", err)
 		}

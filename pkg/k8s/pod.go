@@ -9,6 +9,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/fatih/color"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -128,11 +130,11 @@ func firstRunningPodName(pods []corev1.Pod) (name, problem string) {
 }
 
 func logContainerProblem(ctx context.Context, c *Client, podName, problem string) {
-	waitLog.Printf("[wait] pod %q: %s, fetching crash logs...", podName, problem)
+	waitLog.Printf("%s pod %q: %s, fetching crash logs...", color.YellowString("[wait]"), podName, problem)
 	if logs := fetchPreviousLogsFn(ctx, c, podName); logs != "" {
-		waitLog.Printf("[wait] previous logs for %q:\n%s", podName, logs)
+		waitLog.Printf("%s previous logs for %q:\n%s", color.YellowString("[wait]"), podName, logs)
 	}
-	waitLog.Printf("[wait] retrying in 5s...")
+	waitLog.Printf("%s retrying in 5s...", color.YellowString("[wait]"))
 }
 
 func fetchPreviousLogs(ctx context.Context, c *Client, podName string) string {

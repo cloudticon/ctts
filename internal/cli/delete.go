@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cloudticon/ctts/pkg/k8s"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -62,6 +63,6 @@ func runDelete(cmd *cobra.Command, releaseName string, opts deleteOpts) error {
 		return fmt.Errorf("deleting release inventory: %w", err)
 	}
 
-	fmt.Fprintf(cmd.ErrOrStderr(), "deleted release %s (%d resources)\n", releaseName, len(resources))
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s release %s (%d resources)\n", color.HiRedString("deleted"), releaseName, len(resources))
 	return nil
 }

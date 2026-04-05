@@ -16,6 +16,8 @@ import (
 	"github.com/cloudticon/ctts/pkg/engine"
 	"github.com/cloudticon/ctts/pkg/k8s"
 	ctsync "github.com/cloudticon/ctts/pkg/sync"
+	"github.com/fatih/color"
+	"github.com/pterm/pterm"
 	"k8s.io/klog/v2"
 )
 
@@ -132,7 +134,13 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 
 	hasTerminal := hasTerminalTarget(targets)
 
+	var reconnectSp *pterm.SpinnerPrinter
 	for attempt := 0; ; attempt++ {
+		if reconnectSp != nil {
+			reconnectSp.Stop()
+			reconnectSp = nil
+		}
+
 		sessionStart := time.Now()
 		err := runDevSession(ctx, k8sClient, targets, stdout, hasTerminal, attempt > 0)
 
@@ -155,18 +163,22 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 			return fmt.Errorf("session failed after %d attempts: %w", attempt+1, err)
 		}
 
-		devLog.Printf("[terminal] disconnected: %v", err)
-		devLog.Printf("[terminal] waiting for pod to restart (attempt %d/%d)...", attempt+2, maxSessionRetries)
+		pterm.Warning.Printfln("[terminal] disconnected: %v", err)
+		reconnectSp, _ = pterm.DefaultSpinner.Start(
+			fmt.Sprintf("waiting for pod to restart (attempt %d/%d)...", attempt+2, maxSessionRetries))
 	}
 }
 
 func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target, stdout io.Writer, hasTerminal bool, reconnect bool) error {
 	podNames := make(map[string]string, len(targets))
 	for _, t := range targets {
+		sp, _ := pterm.DefaultSpinner.Start("waiting for pod " + t.Name + "...")
 		podName, err := runWaitForPodFn(ctx, k8sClient, t.Selector)
 		if err != nil {
+			sp.Fail("pod " + t.Name + " failed: " + err.Error())
 			return err
 		}
+		sp.Success("pod " + t.Name + " ready")
 		podNames[t.Name] = podName
 	}
 
@@ -246,11 +258,12 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 	}()
 
 	if hasTerminal {
-		devLog.Printf("[sync] waiting for initial sync to complete...")
+		sp, _ := pterm.DefaultSpinner.Start("waiting for initial sync...")
 		select {
 		case <-syncReady:
-			devLog.Printf("[sync] initial sync complete")
+			sp.Success("initial sync complete")
 		case <-featuresCtx.Done():
+			sp.Fail("sync interrupted")
 			cancel()
 			return waitFeatures()
 		}
@@ -283,11 +296,11 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 		}
 
 		if stdout != nil {
-			if reconnect {
-				fmt.Fprintf(stdout, "reconnecting terminal for target %s\n", target.Name)
-			} else {
-				fmt.Fprintf(stdout, "starting terminal for target %s\n", target.Name)
-			}
+		if reconnect {
+			fmt.Fprintf(stdout, "%s for target %s\n", color.CyanString("reconnecting terminal"), target.Name)
+		} else {
+			fmt.Fprintf(stdout, "%s for target %s\n", color.CyanString("starting terminal"), target.Name)
+		}
 		}
 
 		terminalErr := runTerminalFn(featuresCtx, k8sClient, target.Selector, terminalCommand(target))
@@ -448,7 +461,7 @@ func runDevDelete(ctx context.Context, opts RunOpts, namespace string) error {
 		return fmt.Errorf("deleting dev inventory: %w", err)
 	}
 
-	fmt.Fprintf(opts.Stdout, "deleted dev environment %s (%d resources)\n", opts.ReleaseName, len(resources))
+	fmt.Fprintf(opts.Stdout, "%s dev environment %s (%d resources)\n", color.HiRedString("deleted"), opts.ReleaseName, len(resources))
 	return nil
 }
 

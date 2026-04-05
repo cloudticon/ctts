@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/cloudticon/ctts/pkg/k8s"
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -71,16 +71,20 @@ func runList(cmd *cobra.Command, opts listOpts) error {
 }
 
 func writeReleaseTable(w io.Writer, releases []k8s.ReleaseInfo) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "NAME\tNAMESPACE\tRESOURCES"); err != nil {
+	data := [][]string{{"NAME", "NAMESPACE", "RESOURCES"}}
+	for _, r := range releases {
+		data = append(data, []string{r.Name, r.Namespace, fmt.Sprintf("%d", r.Resources)})
+	}
+	table, err := pterm.DefaultTable.
+		WithHasHeader().
+		WithData(pterm.TableData(data)).
+		WithWriter(w).
+		Srender()
+	if err != nil {
 		return err
 	}
-	for _, release := range releases {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%d\n", release.Name, release.Namespace, release.Resources); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
+	_, err = fmt.Fprint(w, table)
+	return err
 }
 
 func writeReleaseJSON(w io.Writer, releases []k8s.ReleaseInfo) error {

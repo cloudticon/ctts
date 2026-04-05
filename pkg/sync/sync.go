@@ -14,6 +14,7 @@ import (
 	stdsync "sync"
 
 	"github.com/cloudticon/ctts/pkg/k8s"
+	"github.com/fatih/color"
 )
 
 // SyncRule describes one local->container sync mapping.
@@ -99,7 +100,7 @@ func (s *Syncer) RunWithReady(ctx context.Context, ready func()) error {
 
 	for changes := range watcher.Watch(ctx) {
 		if err := s.incrementalSync(ctx, changes); err != nil {
-			log.Printf("[sync] incremental sync error: %v", err)
+			log.Printf("%s incremental sync error: %v", color.YellowString("[sync]"), err)
 		}
 	}
 
@@ -136,7 +137,7 @@ func (s *Syncer) initialSync(ctx context.Context) error {
 	if err := execStreamFn(ctx, s.client, s.podName, cmd, bytes.NewReader(buf.Bytes())); err != nil {
 		return err
 	}
-	log.Printf("[sync] initial: %d files (%d bytes)", len(files), totalSize)
+	log.Printf("%s initial: %d files (%d bytes)", color.CyanString("[sync]"), len(files), totalSize)
 	return nil
 }
 
@@ -181,7 +182,7 @@ func (s *Syncer) incrementalSync(ctx context.Context, changes []FileChange) erro
 		deletedCount++
 	}
 
-	log.Printf("[sync] %d files synced, %d deleted", syncedCount, deletedCount)
+	log.Printf("%s %d files synced, %d deleted", color.CyanString("[sync]"), syncedCount, deletedCount)
 	return nil
 }
 

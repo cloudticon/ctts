@@ -7,6 +7,8 @@ import (
 	"log"
 	"strings"
 
+	"github.com/fatih/color"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -62,16 +64,16 @@ func (c *Client) deleteOne(ctx context.Context, ref ResourceRef) error {
 
 	if err := dynClient.Delete(ctx, ref.Name, metav1.DeleteOptions{}); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Printf("resource already deleted: %s/%s", ref.Kind, ref.Name)
+			log.Printf("%s %s/%s", color.YellowString("already deleted"), ref.Kind, ref.Name)
 			return nil
 		}
 		return fmt.Errorf("deleting %s %q: %w", ref.Kind, ref.Name, err)
 	}
 
 	if targetNamespace != "" {
-		log.Printf("deleted %s/%s in namespace %s", ref.Kind, ref.Name, targetNamespace)
+		log.Printf("%s %s/%s in namespace %s", color.HiRedString("deleted"), ref.Kind, ref.Name, targetNamespace)
 	} else {
-		log.Printf("deleted %s/%s", ref.Kind, ref.Name)
+		log.Printf("%s %s/%s", color.HiRedString("deleted"), ref.Kind, ref.Name)
 	}
 	return nil
 }

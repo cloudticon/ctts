@@ -10,10 +10,17 @@ import (
 	"log"
 	"time"
 
+	"github.com/fatih/color"
 	corev1 "k8s.io/api/core/v1"
 )
 
-var logColors = []string{"\033[36m", "\033[33m", "\033[32m", "\033[35m", "\033[34m"}
+var logColorFns = []*color.Color{
+	color.New(color.FgCyan),
+	color.New(color.FgYellow),
+	color.New(color.FgGreen),
+	color.New(color.FgMagenta),
+	color.New(color.FgBlue),
+}
 
 var (
 	waitForPodForLogsFn      = waitForPod
@@ -45,7 +52,7 @@ func StreamLogs(ctx context.Context, c *Client, targetName string, selector map[
 			if ctx.Err() != nil {
 				return nil
 			}
-			log.Printf("[logs] failed to open stream for %s (%s), reconnecting: %v", targetName, pod, err)
+			log.Printf("%s failed to open stream for %s (%s), reconnecting: %v", color.YellowString("[logs]"), targetName, pod, err)
 			sleepForLogReconnectsFn(2 * time.Second)
 			continue
 		}
@@ -60,7 +67,7 @@ func StreamLogs(ctx context.Context, c *Client, targetName string, selector map[
 			if ctx.Err() != nil {
 				return nil
 			}
-			log.Printf("[logs] stream interrupted for %s (%s), reconnecting: %v", targetName, pod, scanErr)
+			log.Printf("%s stream interrupted for %s (%s), reconnecting: %v", color.YellowString("[logs]"), targetName, pod, scanErr)
 			sleepForLogReconnectsFn(2 * time.Second)
 			continue
 		}
@@ -87,9 +94,8 @@ func streamPodLogs(ctx context.Context, c *Client, pod string) (io.ReadCloser, e
 }
 
 func logPrefix(targetName string) string {
-	color := logColors[int(hashString(targetName))%len(logColors)]
-	reset := "\033[0m"
-	return fmt.Sprintf("%s[%s]%s ", color, targetName, reset)
+	c := logColorFns[int(hashString(targetName))%len(logColorFns)]
+	return c.Sprintf("[%s]", targetName) + " "
 }
 
 func hashString(s string) uint32 {

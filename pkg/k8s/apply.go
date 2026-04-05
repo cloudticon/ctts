@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/fatih/color"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -57,7 +59,7 @@ func (c *Client) applyOne(ctx context.Context, res Resource) error {
 		return fmt.Errorf("applying %s %q: %w", obj.GetKind(), obj.GetName(), err)
 	}
 
-	log.Printf("applied %s/%s", obj.GetKind(), obj.GetName())
+	log.Printf("%s %s/%s", color.GreenString("applied"), obj.GetKind(), obj.GetName())
 	return nil
 }
 
