@@ -474,6 +474,7 @@ func TestWatchPodHealth_ReturnsWhenPodNotRunning(t *testing.T) {
 	assert.Contains(t, err.Error(), "is no longer running")
 }
 
+
 func TestFirstRunningPodName_EmptyWhenAllTerminating(t *testing.T) {
 	now := metav1.Now()
 	pods := []corev1.Pod{
