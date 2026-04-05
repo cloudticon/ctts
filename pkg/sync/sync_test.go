@@ -108,10 +108,17 @@ func TestSyncerRun_ValidatesInput(t *testing.T) {
 	assert.Contains(t, err.Error(), "k8s client is required")
 }
 
-func TestSyncerRun_CallsInitialAndExitsOnCancel(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
+func TestSyncerRunWithReady_ValidatesInputAndStillSignalsReady(t *testing.T) {
+	s := NewSyncer(nil, nil, SyncRule{From: ".", To: "/app"})
+	readyCalled := false
+	err := s.RunWithReady(context.Background(), func() { readyCalled = true })
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "k8s client is required")
+	assert.True(t, readyCalled, "ready must be called even on validation error")
+}
 
+func saveSyncSeams(t *testing.T) {
+	t.Helper()
 	origWaitForPodFn := waitForPodFn
 	origExecStreamFn := execStreamFn
 	origExecSimpleFn := execSimpleFn
@@ -130,6 +137,13 @@ func TestSyncerRun_CallsInitialAndExitsOnCancel(t *testing.T) {
 	execSimpleFn = func(_ context.Context, _ *k8s.Client, _ string, _ []string) error {
 		return nil
 	}
+}
+
+func TestSyncerRun_CallsInitialAndExitsOnCancel(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
+
+	saveSyncSeams(t)
 
 	s := NewSyncer(&k8s.Client{}, map[string]string{"app": "x"}, SyncRule{
 		From:    root,
@@ -141,6 +155,70 @@ func TestSyncerRun_CallsInitialAndExitsOnCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- s.Run(ctx)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("syncer run did not exit after context cancel")
+	}
+}
+
+func TestSyncerRunWithReady_SignalsAfterInitialSync(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
+
+	saveSyncSeams(t)
+
+	s := NewSyncer(&k8s.Client{}, map[string]string{"app": "x"}, SyncRule{
+		From:    root,
+		To:      "/app",
+		Polling: true,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	readyCh := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- s.RunWithReady(ctx, func() { close(readyCh) })
+	}()
+
+	select {
+	case <-readyCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ready callback was not called after initial sync")
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("syncer run did not exit after context cancel")
+	}
+}
+
+func TestSyncerRunWithReady_NilReadyDoesNotPanic(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
+
+	saveSyncSeams(t)
+
+	s := NewSyncer(&k8s.Client{}, map[string]string{"app": "x"}, SyncRule{
+		From:    root,
+		To:      "/app",
+		Polling: true,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- s.RunWithReady(ctx, nil)
 	}()
 
 	time.Sleep(200 * time.Millisecond)

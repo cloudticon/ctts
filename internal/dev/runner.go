@@ -69,14 +69,14 @@ var runWatchPodHealthFn = func(ctx context.Context, client *k8s.Client, podName 
 	return k8s.WatchPodHealth(ctx, client, podName)
 }
 
-var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, rule SyncRule) error {
+var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, rule SyncRule, ready func()) error {
 	syncer := ctsync.NewSyncer(client, selector, ctsync.SyncRule{
 		From:    rule.From,
 		To:      rule.To,
 		Exclude: append([]string(nil), rule.Exclude...),
 		Polling: rule.Polling,
 	})
-	return syncer.Run(ctx)
+	return syncer.RunWithReady(ctx, ready)
 }
 
 var injectReleaseLabelsFn = k8s.InjectReleaseLabels
@@ -190,6 +190,8 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 		}()
 	}
 
+	var syncWg sync.WaitGroup
+
 	for _, target := range targets {
 		target := target
 
@@ -201,8 +203,9 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 
 		for _, rule := range target.Sync {
 			rule := rule
+			syncWg.Add(1)
 			startFeature(func(gctx context.Context) error {
-				return runSyncFn(gctx, k8sClient, target.Selector, rule)
+				return runSyncFn(gctx, k8sClient, target.Selector, rule, syncWg.Done)
 			})
 		}
 
@@ -236,7 +239,22 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 		}
 	}
 
+	syncReady := make(chan struct{})
+	go func() {
+		syncWg.Wait()
+		close(syncReady)
+	}()
+
 	if hasTerminal {
+		devLog.Printf("[sync] waiting for initial sync to complete...")
+		select {
+		case <-syncReady:
+			devLog.Printf("[sync] initial sync complete")
+		case <-featuresCtx.Done():
+			cancel()
+			return waitFeatures()
+		}
+
 		origLogWriter := log.Writer()
 		origStderr := os.Stderr
 

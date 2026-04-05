@@ -179,6 +179,54 @@ func TestPatchResources_Image(t *testing.T) {
 	assert.Equal(t, "web:dev", c["image"])
 }
 
+func TestPatchResources_TTYAlwaysEnabled(t *testing.T) {
+	resources := []engine.Resource{makeWorkloadResource("web")}
+	targets := []dev.Target{{Name: "web"}}
+
+	dev.PatchResources(resources, targets)
+
+	c := getFirstContainer(resources[0])
+	assert.Equal(t, true, c["tty"], "tty should be enabled")
+	assert.Equal(t, true, c["stdin"], "stdin should be enabled")
+}
+
+func TestPatchResources_TTYOnSpecificContainer(t *testing.T) {
+	res := engine.Resource{
+		"kind":     "Deployment",
+		"metadata": map[string]interface{}{"name": "multi"},
+		"spec": map[string]interface{}{
+			"selector": map[string]interface{}{
+				"matchLabels": map[string]interface{}{"app": "multi"},
+			},
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{"name": "sidecar", "image": "sidecar:latest"},
+						map[string]interface{}{"name": "app", "image": "app:latest"},
+					},
+				},
+			},
+		},
+	}
+	resources := []engine.Resource{res}
+	targets := []dev.Target{{Name: "multi", Container: "app"}}
+
+	dev.PatchResources(resources, targets)
+
+	spec := resources[0]["spec"].(map[string]interface{})
+	tmpl := spec["template"].(map[string]interface{})
+	tSpec := tmpl["spec"].(map[string]interface{})
+	containers := tSpec["containers"].([]interface{})
+
+	sidecar := containers[0].(map[string]interface{})
+	_, sidecarHasTTY := sidecar["tty"]
+	assert.False(t, sidecarHasTTY, "sidecar should not have tty set")
+
+	app := containers[1].(map[string]interface{})
+	assert.Equal(t, true, app["tty"], "app container should have tty enabled")
+	assert.Equal(t, true, app["stdin"], "app container should have stdin enabled")
+}
+
 func TestPatchResources_ExternalTargetSkipped(t *testing.T) {
 	resources := []engine.Resource{}
 	targets := []dev.Target{{

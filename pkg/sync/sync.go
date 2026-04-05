@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	stdsync "sync"
 
 	"github.com/cloudticon/ctts/pkg/k8s"
 )
@@ -58,6 +59,20 @@ func NewSyncer(client *k8s.Client, selector map[string]string, rule SyncRule) *S
 
 // Run starts initial sync and then incremental sync on file changes.
 func (s *Syncer) Run(ctx context.Context) error {
+	return s.RunWithReady(ctx, nil)
+}
+
+// RunWithReady is like Run but calls ready after the initial sync completes.
+// The ready callback is guaranteed to be called exactly once before returning,
+// even if an error occurs during initial sync.
+func (s *Syncer) RunWithReady(ctx context.Context, ready func()) error {
+	signalReady := func() {}
+	if ready != nil {
+		var once stdsync.Once
+		signalReady = func() { once.Do(ready) }
+		defer signalReady()
+	}
+
 	if s.client == nil {
 		return errors.New("k8s client is required")
 	}
@@ -74,6 +89,8 @@ func (s *Syncer) Run(ctx context.Context) error {
 	if err := s.initialSync(ctx); err != nil {
 		return fmt.Errorf("initial sync failed: %w", err)
 	}
+
+	signalReady()
 
 	watcher, err := NewWatcher(s.rule.From, s.rule.Exclude, s.rule.Polling)
 	if err != nil {

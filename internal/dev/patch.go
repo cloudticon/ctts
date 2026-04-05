@@ -38,6 +38,8 @@ func PatchResources(resources []engine.Resource, targets []Target) {
 		if t.Image != "" {
 			setContainerImage(res, t.Image, containerIdx)
 		}
+
+		setContainerTTY(res, containerIdx)
 	}
 }
 
@@ -134,6 +136,19 @@ func setContainerWorkingDir(res engine.Resource, workingDir string, containerIdx
 		return
 	}
 	c["workingDir"] = workingDir
+}
+
+func setContainerTTY(res engine.Resource, containerIdx int) {
+	containers := getContainers(res)
+	if containerIdx >= len(containers) {
+		return
+	}
+	c, _ := containers[containerIdx].(map[string]interface{})
+	if c == nil {
+		return
+	}
+	c["tty"] = true
+	c["stdin"] = true
 }
 
 func setContainerImage(res engine.Resource, image string, containerIdx int) {

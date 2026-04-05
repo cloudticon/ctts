@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudticon/ctts/pkg/engine"
 	"github.com/cloudticon/ctts/pkg/k8s"
@@ -166,10 +167,13 @@ func TestStartDevFeatures_StartsAllFeaturesAndRunsTerminal(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, selector map[string]string, rule SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, selector map[string]string, rule SyncRule, ready func()) error {
 		mu.Lock()
 		syncCalls = append(syncCalls, selector["app"]+":"+rule.From+"->"+rule.To)
 		mu.Unlock()
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -216,7 +220,10 @@ func TestStartDevFeatures_RunsTerminalInWorkingDir(t *testing.T) {
 	runLogsFn = func(_ context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
 		return nil
 	}
-	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		return nil
 	}
 
@@ -256,7 +263,10 @@ func TestStartDevFeatures_SilencesGlobalLoggerDuringTerminalAndRestores(t *testi
 	runLogsFn = func(_ context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
 		return nil
 	}
-	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		return nil
 	}
 	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
@@ -297,7 +307,10 @@ func TestStartDevFeatures_ReturnsTerminalError(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		return nil
 	}
 	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
@@ -319,7 +332,10 @@ func TestStartDevFeatures_IgnoresTerminalExitCode130(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		return nil
 	}
 	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
@@ -336,7 +352,10 @@ func TestStartDevFeatures_ReturnsBackgroundFeatureError(t *testing.T) {
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
 	}
-	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		return nil
 	}
 	runLogsFn = func(_ context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
@@ -364,7 +383,10 @@ func TestStartDevFeatures_SuppressesLogsWhenTerminalActive(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -398,7 +420,10 @@ func TestStartDevFeatures_StartsLogsWhenNoTerminal(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -670,7 +695,10 @@ func TestStartDevFeatures_ReconnectsOnConnectionError(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -711,7 +739,10 @@ func TestStartDevFeatures_NoRetryOnExitCode(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		return nil
 	}
 
@@ -740,7 +771,10 @@ func TestStartDevFeatures_MaxRetriesExceeded(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -771,7 +805,10 @@ func TestStartDevFeatures_NoRetryWithoutTerminal(t *testing.T) {
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
 	}
-	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		return nil
 	}
 	runLogsFn = func(_ context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
@@ -797,7 +834,10 @@ func TestStartDevFeatures_DevLogDisconnectMessage(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -845,7 +885,10 @@ func TestStartDevFeatures_RetriesOnExitCode137(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -883,7 +926,10 @@ func TestStartDevFeatures_RetriesOnExitCode143(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -947,7 +993,10 @@ func TestStartDevFeatures_ResetsAttemptAfterEstablishedSession(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
@@ -979,6 +1028,61 @@ func TestStartDevFeatures_ResetsAttemptAfterEstablishedSession(t *testing.T) {
 		"should survive >5 disconnections when sessions are established (counter resets)")
 }
 
+func TestStartDevFeatures_TerminalWaitsForInitialSync(t *testing.T) {
+	saveDevFeatureSeams(t)
+
+	var mu sync.Mutex
+	syncStarted := make(chan struct{})
+	var terminalStartedBeforeSyncDone bool
+
+	syncDone := false
+
+	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
+		<-ctx.Done()
+		return nil
+	}
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		close(syncStarted)
+		// Simulate slow initial sync
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		mu.Lock()
+		syncDone = true
+		mu.Unlock()
+		if ready != nil {
+			ready()
+		}
+		<-ctx.Done()
+		return nil
+	}
+	runLogsFn = func(ctx context.Context, _ *k8s.Client, _ string, _ map[string]string, _ io.Writer) error {
+		<-ctx.Done()
+		return nil
+	}
+	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		mu.Lock()
+		terminalStartedBeforeSyncDone = !syncDone
+		mu.Unlock()
+		return nil
+	}
+
+	targets := []Target{
+		{
+			Name:     "web",
+			Selector: map[string]string{"app": "web"},
+			Sync:     []SyncRule{{From: "./", To: "/app"}},
+			Terminal: "bash",
+		},
+	}
+
+	err := startDevFeatures(context.Background(), &k8s.Client{}, targets, &bytes.Buffer{})
+	require.NoError(t, err)
+	assert.False(t, terminalStartedBeforeSyncDone, "terminal must not start before initial sync completes")
+}
+
 func TestStartDevFeatures_HealthWatcherTriggersReconnect(t *testing.T) {
 	saveDevFeatureSeams(t)
 
@@ -986,7 +1090,10 @@ func TestStartDevFeatures_HealthWatcherTriggersReconnect(t *testing.T) {
 		<-ctx.Done()
 		return nil
 	}
-	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
+	runSyncFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule, ready func()) error {
+		if ready != nil {
+			ready()
+		}
 		<-ctx.Done()
 		return nil
 	}
