@@ -37,6 +37,10 @@ var newK8sClient = func(kubeCtx, namespace string) (kubeApplier, error) {
 	return k8s.NewClient(kubeCtx, namespace)
 }
 
+var runWaitForPodFn = func(ctx context.Context, client *k8s.Client, selector map[string]string) (string, error) {
+	return k8s.WaitForPod(ctx, client, selector)
+}
+
 var runTerminalFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, command string) error {
 	return k8s.Exec(ctx, client, selector, command)
 }
@@ -115,6 +119,12 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 		return nil
 	}
 
+	for _, t := range targets {
+		if _, err := runWaitForPodFn(ctx, k8sClient, t.Selector); err != nil {
+			return err
+		}
+	}
+
 	featuresCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -141,11 +151,6 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 			hasTerminal = true
 			break
 		}
-	}
-	if hasTerminal {
-		originalLogOutput := log.Writer()
-		log.SetOutput(io.Discard)
-		defer log.SetOutput(originalLogOutput)
 	}
 
 	for _, target := range targets {
@@ -185,6 +190,12 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 		case <-done:
 			return nil
 		}
+	}
+
+	if hasTerminal {
+		originalLogOutput := log.Writer()
+		log.SetOutput(io.Discard)
+		defer log.SetOutput(originalLogOutput)
 	}
 
 	for _, target := range targets {

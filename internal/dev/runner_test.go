@@ -114,17 +114,27 @@ func (fakeApplier) Apply(_ context.Context, _ []engine.Resource) error {
 	return nil
 }
 
-func TestStartDevFeatures_StartsAllFeaturesAndRunsTerminal(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
+func saveDevFeatureSeams(t *testing.T) {
+	t.Helper()
+	origPortForward := runPortForwardFn
+	origLogs := runLogsFn
+	origSync := runSyncFn
+	origTerminal := runTerminalFn
+	origWaitForPod := runWaitForPodFn
 	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
+		runPortForwardFn = origPortForward
+		runLogsFn = origLogs
+		runSyncFn = origSync
+		runTerminalFn = origTerminal
+		runWaitForPodFn = origWaitForPod
 	})
+	runWaitForPodFn = func(_ context.Context, _ *k8s.Client, _ map[string]string) (string, error) {
+		return "pod-stub", nil
+	}
+}
+
+func TestStartDevFeatures_StartsAllFeaturesAndRunsTerminal(t *testing.T) {
+	saveDevFeatureSeams(t)
 
 	var mu sync.Mutex
 	var portCalls []string
@@ -189,16 +199,7 @@ func TestStartDevFeatures_StartsAllFeaturesAndRunsTerminal(t *testing.T) {
 }
 
 func TestStartDevFeatures_RunsTerminalInWorkingDir(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -230,17 +231,8 @@ func TestStartDevFeatures_RunsTerminalInWorkingDir(t *testing.T) {
 	assert.Equal(t, `cd "/workspace/app dir" && npm run dev`, terminalCmd)
 }
 
-func TestStartDevFeatures_SilencesGlobalLoggerAndRestoresOutput(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+func TestStartDevFeatures_SilencesGlobalLoggerDuringTerminalAndRestores(t *testing.T) {
+	saveDevFeatureSeams(t)
 
 	originalLogOutput := log.Writer()
 	logBuffer := &bytes.Buffer{}
@@ -256,10 +248,10 @@ func TestStartDevFeatures_SilencesGlobalLoggerAndRestoresOutput(t *testing.T) {
 		return nil
 	}
 	runSyncFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ SyncRule) error {
-		log.Printf("[sync] this should be silenced")
 		return nil
 	}
 	runTerminalFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ string) error {
+		log.Printf("[during-terminal] should be silenced")
 		return nil
 	}
 
@@ -274,8 +266,10 @@ func TestStartDevFeatures_SilencesGlobalLoggerAndRestoresOutput(t *testing.T) {
 
 	err := startDevFeatures(context.Background(), &k8s.Client{}, targets, &bytes.Buffer{})
 	require.NoError(t, err)
-	assert.Empty(t, logBuffer.String(), "global logger output should be silenced while terminal is active")
-	assert.Same(t, logBuffer, log.Writer(), "global logger output should be restored after terminal exits")
+	assert.NotContains(t, logBuffer.String(), "[during-terminal] should be silenced",
+		"global logger output should be silenced while terminal is active")
+	assert.Same(t, logBuffer, log.Writer(),
+		"global logger output should be restored after terminal exits")
 }
 
 func TestStartDevFeatures_UnsupportedClientType(t *testing.T) {
@@ -285,16 +279,7 @@ func TestStartDevFeatures_UnsupportedClientType(t *testing.T) {
 }
 
 func TestStartDevFeatures_ReturnsTerminalError(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -316,16 +301,7 @@ func TestStartDevFeatures_ReturnsTerminalError(t *testing.T) {
 }
 
 func TestStartDevFeatures_IgnoresTerminalExitCode130(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -346,16 +322,7 @@ func TestStartDevFeatures_IgnoresTerminalExitCode130(t *testing.T) {
 }
 
 func TestStartDevFeatures_ReturnsBackgroundFeatureError(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	runPortForwardFn = func(_ context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
 		return nil
@@ -376,16 +343,7 @@ func TestStartDevFeatures_ReturnsBackgroundFeatureError(t *testing.T) {
 }
 
 func TestStartDevFeatures_SuppressesLogsWhenTerminalActive(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	logsCalled := false
 	runPortForwardFn = func(ctx context.Context, _ *k8s.Client, _ map[string]string, _ []PortRule) error {
@@ -416,16 +374,7 @@ func TestStartDevFeatures_SuppressesLogsWhenTerminalActive(t *testing.T) {
 }
 
 func TestStartDevFeatures_StartsLogsWhenNoTerminal(t *testing.T) {
-	origRunPortForward := runPortForwardFn
-	origRunLogs := runLogsFn
-	origRunSync := runSyncFn
-	origRunTerminal := runTerminalFn
-	t.Cleanup(func() {
-		runPortForwardFn = origRunPortForward
-		runLogsFn = origRunLogs
-		runSyncFn = origRunSync
-		runTerminalFn = origRunTerminal
-	})
+	saveDevFeatureSeams(t)
 
 	var mu sync.Mutex
 	var logCalls []string
