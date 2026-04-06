@@ -21,7 +21,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-var devLog = log.New(os.Stderr, "", log.LstdFlags)
+var devLog = log.New(os.Stderr, "", 0)
 
 const maxSessionRetries = 5
 
@@ -134,13 +134,7 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 
 	hasTerminal := hasTerminalTarget(targets)
 
-	var reconnectSp *pterm.SpinnerPrinter
 	for attempt := 0; ; attempt++ {
-		if reconnectSp != nil {
-			reconnectSp.Stop()
-			reconnectSp = nil
-		}
-
 		sessionStart := time.Now()
 		err := runDevSession(ctx, k8sClient, targets, stdout, hasTerminal, attempt > 0)
 
@@ -163,9 +157,8 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 			return fmt.Errorf("session failed after %d attempts: %w", attempt+1, err)
 		}
 
-		pterm.Warning.Printfln("[terminal] disconnected: %v", err)
-		reconnectSp, _ = pterm.DefaultSpinner.Start(
-			fmt.Sprintf("waiting for pod to restart (attempt %d/%d)...", attempt+2, maxSessionRetries))
+		devLog.Printf("[terminal] disconnected: %v", err)
+		devLog.Printf("[terminal] waiting for pod to restart (attempt %d/%d)...", attempt+2, maxSessionRetries)
 	}
 }
 
@@ -203,6 +196,7 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 	}
 
 	var syncWg sync.WaitGroup
+	var syncCount int
 
 	for _, target := range targets {
 		target := target
@@ -215,6 +209,7 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 
 		for _, rule := range target.Sync {
 			rule := rule
+			syncCount++
 			syncWg.Add(1)
 			startFeature(func(gctx context.Context) error {
 				return runSyncFn(gctx, k8sClient, target.Selector, rule, syncWg.Done)
@@ -251,13 +246,13 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 		}
 	}
 
-	syncReady := make(chan struct{})
-	go func() {
-		syncWg.Wait()
-		close(syncReady)
-	}()
+	if hasTerminal && syncCount > 0 {
+		syncReady := make(chan struct{})
+		go func() {
+			syncWg.Wait()
+			close(syncReady)
+		}()
 
-	if hasTerminal {
 		sp, _ := pterm.DefaultSpinner.Start("waiting for initial sync...")
 		select {
 		case <-syncReady:
@@ -267,7 +262,9 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 			cancel()
 			return waitFeatures()
 		}
+	}
 
+	if hasTerminal {
 		origLogWriter := log.Writer()
 		origStderr := os.Stderr
 

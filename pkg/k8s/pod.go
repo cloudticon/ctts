@@ -18,7 +18,7 @@ import (
 
 // waitLog writes directly to stderr so messages are visible even when the
 // global log output is redirected (e.g. terminal mode in ct dev).
-var waitLog = log.New(os.Stderr, "", log.LstdFlags)
+var waitLog = log.New(os.Stderr, "", 0)
 
 var (
 	fetchPreviousLogsFn = fetchPreviousLogs

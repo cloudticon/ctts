@@ -128,8 +128,7 @@ func (s *Syncer) initialSync(ctx context.Context) error {
 	}
 
 	buf := bytes.NewBuffer(nil)
-	totalSize, err := writeTarFromFiles(buf, s.rule.From, files)
-	if err != nil {
+	if _, err := writeTarFromFiles(buf, s.rule.From, files); err != nil {
 		return err
 	}
 
@@ -137,7 +136,6 @@ func (s *Syncer) initialSync(ctx context.Context) error {
 	if err := execStreamFn(ctx, s.client, s.podName, cmd, bytes.NewReader(buf.Bytes())); err != nil {
 		return err
 	}
-	log.Printf("%s initial: %d files (%d bytes)", color.CyanString("[sync]"), len(files), totalSize)
 	return nil
 }
 
