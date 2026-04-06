@@ -32,7 +32,7 @@
 One-line install (Linux/macOS):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cloudticon/ct/master/install.sh | sudo sh
+curl -fsSL https://cloudtion.com/install.sh | sudo sh
 ```
 
 Via `go install`:
