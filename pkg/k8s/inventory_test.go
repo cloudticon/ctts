@@ -194,12 +194,12 @@ func TestListReleases_Namespace(t *testing.T) {
 			Name:      "ct-inventory-my-release",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "my-release",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "my-release",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[{"kind":"Deployment"},{"kind":"Service"}]`,
+			inventoryDataKey: `[{"kind":"Deployment"},{"kind":"Service"}]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -217,11 +217,11 @@ func TestListReleases_Namespace(t *testing.T) {
 			Name:      "ignored-no-instance",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
+				managedByLabelKey: "ct",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[]`,
+			inventoryDataKey: `[]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -242,12 +242,12 @@ func TestListReleases_AllNamespaces(t *testing.T) {
 			Name:      "ct-inventory-backend",
 			Namespace: "staging",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "backend",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "backend",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[{"kind":"Deployment"}]`,
+			inventoryDataKey: `[{"kind":"Deployment"}]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -257,12 +257,12 @@ func TestListReleases_AllNamespaces(t *testing.T) {
 			Name:      "ct-inventory-api",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "api",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "api",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[{"kind":"Deployment"},{"kind":"Service"},{"kind":"ConfigMap"}]`,
+			inventoryDataKey: `[{"kind":"Deployment"},{"kind":"Service"},{"kind":"ConfigMap"}]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -284,12 +284,12 @@ func TestListReleases_ReturnsErrorOnInvalidResourcesJSON(t *testing.T) {
 			Name:      "ct-inventory-broken",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "broken",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "broken",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `{`,
+			inventoryDataKey: `{`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)

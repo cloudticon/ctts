@@ -14,8 +14,6 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
-const inventoryConfigMapPrefix = "ct-inventory-"
-
 // ResourceRef identifies a Kubernetes resource by API version, kind, name and optional namespace.
 type ResourceRef struct {
 	APIVersion string `json:"apiVersion"`
@@ -110,5 +108,5 @@ func isNamespaceResource(ref ResourceRef) bool {
 }
 
 func isInventoryConfigMap(ref ResourceRef) bool {
-	return ref.APIVersion == "v1" && ref.Kind == "ConfigMap" && strings.HasPrefix(ref.Name, inventoryConfigMapPrefix)
+	return ref.APIVersion == "v1" && ref.Kind == "ConfigMap" && strings.HasPrefix(ref.Name, inventoryCMPrefix)
 }

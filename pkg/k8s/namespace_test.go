@@ -25,7 +25,7 @@ func TestEnsureNamespace_CreatesWhenMissing(t *testing.T) {
 
 	ns, err := client.CoreV1.Namespaces().Get(context.Background(), "dev", metav1.GetOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, "ct", ns.Labels[inventoryManagedByLabelKey])
+	assert.Equal(t, "ct", ns.Labels[managedByLabelKey])
 }
 
 func TestEnsureNamespace_NoOpWhenExists(t *testing.T) {
