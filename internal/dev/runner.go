@@ -39,95 +39,46 @@ type RunOpts struct {
 	Stderr          io.Writer
 }
 
-type kubeApplier interface {
-	Apply(ctx context.Context, resources []engine.Resource) error
-}
-
-var newK8sClient = func(kubeCtx, namespace string) (kubeApplier, error) {
-	return k8s.NewClient(kubeCtx, namespace)
-}
-
-var runWaitForPodFn = func(ctx context.Context, client *k8s.Client, selector map[string]string) (string, error) {
-	return k8s.WaitForPod(ctx, client, selector)
-}
-
-var runTerminalFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, command string) error {
-	return k8s.Exec(ctx, client, selector, command)
-}
-
-var runPortForwardFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, ports []PortRule) error {
-	k8sPorts := make([]k8s.PortRule, 0, len(ports))
-	for _, p := range ports {
-		k8sPorts = append(k8sPorts, k8s.PortRule{Local: p.Local, Remote: p.Remote})
-	}
-	return k8s.PortForward(ctx, client, selector, k8sPorts)
-}
-
-var runLogsFn = func(ctx context.Context, client *k8s.Client, targetName string, selector map[string]string, w io.Writer) error {
-	return k8s.StreamLogs(ctx, client, targetName, selector, w)
-}
-
-var runWatchPodHealthFn = func(ctx context.Context, client *k8s.Client, podName string) error {
-	return k8s.WatchPodHealth(ctx, client, podName)
-}
-
-var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, rule SyncRule, ready func()) error {
-	syncer := ctsync.NewSyncer(k8s.AsPodExecutor(client), client.Namespace, selector, ctsync.SyncRule{
-		From:    rule.From,
-		To:      rule.To,
-		Exclude: append([]string(nil), rule.Exclude...),
-		Polling: rule.Polling,
+// newClusterFn is the single seam for constructing a k8s.Cluster from CLI
+// flags. Tests override this with k8stest.NewFake() to exercise the dev
+// runner without a real cluster.
+var newClusterFn = func(kubeCtx, namespace string) (k8s.Cluster, error) {
+	return k8s.NewLiveCluster(k8s.LiveOpts{
+		KubeContext:      kubeCtx,
+		DefaultNamespace: namespace,
 	})
-	return syncer.RunWithReady(ctx, ready)
 }
 
-var injectReleaseLabelsFn = k8s.InjectReleaseLabels
-
-var ensureNamespaceFn = func(ctx context.Context, client kubeApplier, namespace string) error {
-	k8sClient, ok := client.(*k8s.Client)
-	if !ok {
-		return fmt.Errorf("unsupported kubernetes client type %T for ensure namespace", client)
-	}
-	return k8s.EnsureNamespace(ctx, k8sClient, namespace)
+// progressSpinner is the minimal contract runDevSession needs from a spinner.
+// pterm.SpinnerPrinter satisfies it; tests substitute a no-op to dodge a
+// known data race in pterm v0.12.83 (IsActive read/write between the spinner
+// goroutine and Stop) which surfaces under -race in fast-path tests.
+type progressSpinner interface {
+	Success(args ...any)
+	Fail(args ...any)
 }
 
-var applyReleaseFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string, resources []engine.Resource) error {
-	k8sClient, ok := client.(*k8s.Client)
-	if !ok {
-		return fmt.Errorf("unsupported kubernetes client type %T for apply release", client)
-	}
-	return k8sClient.ApplyRelease(ctx, namespace, releaseName, resources)
+var startSpinner = func(text string) progressSpinner {
+	sp, _ := pterm.DefaultSpinner.Start(text)
+	return ptermSpinnerAdapter{sp}
 }
 
-var loadInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string) ([]k8s.ResourceRef, error) {
-	k8sClient, ok := client.(*k8s.Client)
-	if !ok {
-		return nil, fmt.Errorf("unsupported kubernetes client type %T for inventory", client)
-	}
-	return k8s.LoadInventory(ctx, k8sClient, namespace, releaseName)
-}
+type ptermSpinnerAdapter struct{ *pterm.SpinnerPrinter }
 
-var deleteResourcesFn = func(ctx context.Context, client kubeApplier, resources []k8s.ResourceRef) error {
-	k8sClient, ok := client.(*k8s.Client)
-	if !ok {
-		return fmt.Errorf("unsupported kubernetes client type %T for delete", client)
-	}
-	return k8sClient.Delete(ctx, resources)
-}
+func (p ptermSpinnerAdapter) Success(args ...any) { p.SpinnerPrinter.Success(args...) }
+func (p ptermSpinnerAdapter) Fail(args ...any)    { p.SpinnerPrinter.Fail(args...) }
 
-var deleteInventoryFn = func(ctx context.Context, client kubeApplier, namespace, releaseName string) error {
-	k8sClient, ok := client.(*k8s.Client)
-	if !ok {
-		return fmt.Errorf("unsupported kubernetes client type %T for delete inventory", client)
-	}
-	return k8s.DeleteInventory(ctx, k8sClient, namespace, releaseName)
-}
-
-var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []Target, stdout io.Writer) error {
-	k8sClient, ok := client.(*k8s.Client)
-	if !ok {
-		return fmt.Errorf("unsupported kubernetes client type %T", client)
-	}
+// startDevFeatures runs the dev session in a retry loop. It returns when the
+// terminal exits cleanly, when ctx is cancelled, or when retries are exhausted.
+//
+// The retry policy:
+//   - no retries when no target has a terminal (background features fail-fast)
+//   - exit code 130 (Ctrl+C) returns success
+//   - non-pod-kill exit codes return the error verbatim (caller-driven exit)
+//   - exit codes 137/143 (SIGKILL/SIGTERM, i.e. pod restart) and connection
+//     errors retry up to maxSessionRetries; counter resets after a session
+//     stays up for sessionEstablishedThreshold.
+func startDevFeatures(ctx context.Context, cluster k8s.Cluster, namespace string, targets []Target, stdout io.Writer) error {
 	if len(targets) == 0 {
 		return nil
 	}
@@ -136,7 +87,7 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 
 	for attempt := 0; ; attempt++ {
 		sessionStart := time.Now()
-		err := runDevSession(ctx, k8sClient, targets, stdout, hasTerminal, attempt > 0)
+		err := runDevSession(ctx, cluster, namespace, targets, stdout, hasTerminal, attempt > 0)
 
 		if err == nil || ctx.Err() != nil {
 			return err
@@ -162,11 +113,11 @@ var startDevFeatures = func(ctx context.Context, client kubeApplier, targets []T
 	}
 }
 
-func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target, stdout io.Writer, hasTerminal bool, reconnect bool) error {
+func runDevSession(ctx context.Context, cluster k8s.Cluster, namespace string, targets []Target, stdout io.Writer, hasTerminal bool, reconnect bool) error {
 	podNames := make(map[string]string, len(targets))
 	for _, t := range targets {
-		sp, _ := pterm.DefaultSpinner.Start("waiting for pod " + t.Name + "...")
-		podName, err := runWaitForPodFn(ctx, k8sClient, t.Selector)
+		sp := startSpinner("waiting for pod " + t.Name + "...")
+		podName, err := cluster.WaitPod(ctx, namespace, t.Selector)
 		if err != nil {
 			sp.Fail("pod " + t.Name + " failed: " + err.Error())
 			return err
@@ -202,8 +153,9 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 		target := target
 
 		if len(target.Ports) > 0 {
+			k8sPorts := toK8sPortRules(target.Ports)
 			startFeature(func(gctx context.Context) error {
-				return runPortForwardFn(gctx, k8sClient, target.Selector, target.Ports)
+				return cluster.PortForward(gctx, namespace, target.Selector, k8sPorts)
 			})
 		}
 
@@ -212,20 +164,26 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 			syncCount++
 			syncWg.Add(1)
 			startFeature(func(gctx context.Context) error {
-				return runSyncFn(gctx, k8sClient, target.Selector, rule, syncWg.Done)
+				syncer := ctsync.NewSyncer(cluster, namespace, target.Selector, ctsync.SyncRule{
+					From:    rule.From,
+					To:      rule.To,
+					Exclude: append([]string(nil), rule.Exclude...),
+					Polling: rule.Polling,
+				})
+				return syncer.RunWithReady(gctx, syncWg.Done)
 			})
 		}
 
 		if !hasTerminal {
 			startFeature(func(gctx context.Context) error {
-				return runLogsFn(gctx, k8sClient, target.Name, target.Selector, stdout)
+				return cluster.StreamLogs(gctx, namespace, target.Name, target.Selector, stdout)
 			})
 		}
 
 		if hasTerminal && strings.TrimSpace(target.Terminal) != "" {
 			podName := podNames[target.Name]
 			startFeature(func(gctx context.Context) error {
-				return runWatchPodHealthFn(gctx, k8sClient, podName)
+				return cluster.WatchPod(gctx, namespace, podName)
 			})
 		}
 	}
@@ -253,7 +211,7 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 			close(syncReady)
 		}()
 
-		sp, _ := pterm.DefaultSpinner.Start("waiting for initial sync...")
+		sp := startSpinner("waiting for initial sync...")
 		select {
 		case <-syncReady:
 			sp.Success("initial sync complete")
@@ -293,14 +251,20 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 		}
 
 		if stdout != nil {
-		if reconnect {
-			fmt.Fprintf(stdout, "%s for target %s\n", color.CyanString("reconnecting terminal"), target.Name)
-		} else {
-			fmt.Fprintf(stdout, "%s for target %s\n", color.CyanString("starting terminal"), target.Name)
-		}
+			if reconnect {
+				fmt.Fprintf(stdout, "%s for target %s\n", color.CyanString("reconnecting terminal"), target.Name)
+			} else {
+				fmt.Fprintf(stdout, "%s for target %s\n", color.CyanString("starting terminal"), target.Name)
+			}
 		}
 
-		terminalErr := runTerminalFn(featuresCtx, k8sClient, target.Selector, terminalCommand(target))
+		terminalErr := cluster.Exec(featuresCtx, namespace, target.Selector, k8s.ExecOpts{
+			Command: []string{"/bin/sh", "-c", terminalCommand(target)},
+			Stdin:   os.Stdin,
+			Stdout:  os.Stdout,
+			Stderr:  os.Stderr,
+			TTY:     true,
+		})
 		cancel()
 
 		if waitErr := waitFeatures(); waitErr != nil {
@@ -317,6 +281,14 @@ func runDevSession(ctx context.Context, k8sClient *k8s.Client, targets []Target,
 	default:
 		return waitFeatures()
 	}
+}
+
+func toK8sPortRules(ports []PortRule) []k8s.PortRule {
+	out := make([]k8s.PortRule, 0, len(ports))
+	for _, p := range ports {
+		out = append(out, k8s.PortRule{Local: p.Local, Remote: p.Remote})
+	}
+	return out
 }
 
 func terminalCommand(target Target) string {
@@ -388,8 +360,13 @@ func Run(ctx context.Context, opts RunOpts) error {
 		return fmt.Errorf("executing dev.ct: %w", err)
 	}
 
+	cluster, err := newClusterFn(normalizedOpts.KubeCtx, devResult.Namespace)
+	if err != nil {
+		return fmt.Errorf("creating k8s client: %w", err)
+	}
+
 	if normalizedOpts.Delete {
-		return runDevDelete(ctx, normalizedOpts, devResult.Namespace)
+		return runDevDelete(ctx, cluster, devResult.Namespace, normalizedOpts)
 	}
 
 	targets, err := convertTargets(devResult.Targets)
@@ -407,58 +384,39 @@ func Run(ctx context.Context, opts RunOpts) error {
 	}
 	PatchResources(resources, targets)
 
-	resources = injectReleaseLabelsFn(resources, normalizedOpts.ReleaseName)
+	resources = k8s.InjectReleaseLabels(resources, normalizedOpts.ReleaseName)
 
-	client, err := newK8sClient(normalizedOpts.KubeCtx, devResult.Namespace)
-	if err != nil {
-		return fmt.Errorf("creating k8s client: %w", err)
-	}
-
-	if err := ensureRunNamespace(ctx, client, devResult.Namespace, normalizedOpts.CreateNamespace); err != nil {
+	if err := ensureRunNamespace(ctx, cluster, devResult.Namespace, normalizedOpts.CreateNamespace); err != nil {
 		return err
 	}
 
-	if err := applyReleaseFn(ctx, client, devResult.Namespace, normalizedOpts.ReleaseName, resources); err != nil {
+	if err := cluster.ApplyRelease(ctx, devResult.Namespace, normalizedOpts.ReleaseName, resources); err != nil {
 		return fmt.Errorf("applying resources: %w", err)
 	}
 
-	if err := startDevFeatures(ctx, client, targets, normalizedOpts.Stdout); err != nil {
+	if err := startDevFeatures(ctx, cluster, devResult.Namespace, targets, normalizedOpts.Stdout); err != nil {
 		return fmt.Errorf("starting dev features: %w", err)
 	}
 
 	return nil
 }
 
-func ensureRunNamespace(ctx context.Context, client kubeApplier, namespace string, createNamespace bool) error {
+func ensureRunNamespace(ctx context.Context, cluster k8s.Cluster, namespace string, createNamespace bool) error {
 	if !createNamespace || namespace == "" {
 		return nil
 	}
-	if err := ensureNamespaceFn(ctx, client, namespace); err != nil {
+	if err := cluster.EnsureNamespace(ctx, namespace); err != nil {
 		return fmt.Errorf("ensuring namespace %q: %w", namespace, err)
 	}
 	return nil
 }
 
-func runDevDelete(ctx context.Context, opts RunOpts, namespace string) error {
-	client, err := newK8sClient(opts.KubeCtx, namespace)
+func runDevDelete(ctx context.Context, cluster k8s.Cluster, namespace string, opts RunOpts) error {
+	deleted, err := cluster.DeleteRelease(ctx, namespace, opts.ReleaseName)
 	if err != nil {
-		return fmt.Errorf("creating k8s client: %w", err)
+		return err
 	}
-
-	resources, err := loadInventoryFn(ctx, client, namespace, opts.ReleaseName)
-	if err != nil {
-		return fmt.Errorf("loading inventory for release %q: %w", opts.ReleaseName, err)
-	}
-
-	if err := deleteResourcesFn(ctx, client, resources); err != nil {
-		return fmt.Errorf("deleting dev resources: %w", err)
-	}
-
-	if err := deleteInventoryFn(ctx, client, namespace, opts.ReleaseName); err != nil {
-		return fmt.Errorf("deleting dev inventory: %w", err)
-	}
-
-	fmt.Fprintf(opts.Stdout, "%s dev environment %s (%d resources)\n", color.HiRedString("deleted"), opts.ReleaseName, len(resources))
+	fmt.Fprintf(opts.Stdout, "%s dev environment %s (%d resources)\n", color.HiRedString("deleted"), opts.ReleaseName, deleted)
 	return nil
 }
 
