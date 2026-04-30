@@ -19,9 +19,6 @@ type listOpts struct {
 	outputFmt     string
 }
 
-var newK8sClientForList = k8s.NewClient
-var listReleasesForList = k8s.ListReleases
-
 func newListCmd() *cobra.Command {
 	var opts listOpts
 
@@ -48,12 +45,12 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, opts listOpts) error {
-	client, err := newK8sClientForList(opts.context, opts.namespace)
+	cluster, err := newClusterFn(opts.context, opts.namespace)
 	if err != nil {
 		return fmt.Errorf("creating k8s client: %w", err)
 	}
 
-	releases, err := listReleasesForList(cmd.Context(), client, opts.namespace, opts.allNamespaces)
+	releases, err := cluster.ListReleases(cmd.Context(), opts.namespace, opts.allNamespaces)
 	if err != nil {
 		return fmt.Errorf("listing releases: %w", err)
 	}

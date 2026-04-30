@@ -91,44 +91,42 @@ func TestApplyCmd_MissingMainCt_WithReleaseName(t *testing.T) {
 }
 
 func TestEnsureApplyNamespace_SkipsWhenDisabledOrNamespaceEmpty(t *testing.T) {
-	origEnsure := ensureNamespaceForApply
-	t.Cleanup(func() {
-		ensureNamespaceForApply = origEnsure
-	})
+	fake := withFakeCluster(t)
 
-	var calls int
-	ensureNamespaceForApply = func(ctx context.Context, client *k8s.Client, namespace string) error {
-		calls++
-		return nil
-	}
+	require.NoError(t, ensureApplyNamespace(context.Background(), fake, "dev", false))
+	require.NoError(t, ensureApplyNamespace(context.Background(), fake, "", true))
 
-	err := ensureApplyNamespace(context.Background(), &k8s.Client{}, "dev", false)
-	require.NoError(t, err)
-
-	err = ensureApplyNamespace(context.Background(), &k8s.Client{}, "", true)
-	require.NoError(t, err)
-
-	assert.Equal(t, 0, calls)
+	assert.Empty(t, fake.Namespaces, "EnsureNamespace must not be called when disabled or empty")
 }
 
-func TestRunApply_CreatesNamespaceWhenEnabled(t *testing.T) {
+func TestEnsureApplyNamespace_CreatesNamespace(t *testing.T) {
+	fake := withFakeCluster(t)
+
+	require.NoError(t, ensureApplyNamespace(context.Background(), fake, "dev", true))
+	assert.True(t, fake.Namespaces["dev"], "namespace should be ensured")
+}
+
+func TestEnsureApplyNamespace_WrapsError(t *testing.T) {
+	fake := withFakeCluster(t)
+	wrapped := &errCluster{Cluster: fake, ensureErr: errors.New("boom")}
+	orig := newClusterFn
+	newClusterFn = func(kubeContext, namespace string) (k8s.Cluster, error) { return wrapped, nil }
+	t.Cleanup(func() { newClusterFn = orig })
+
+	err := ensureApplyNamespace(context.Background(), wrapped, "dev", true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `ensuring namespace "dev"`)
+}
+
+func TestRunApply_CreatesNamespaceAndAppliesRelease(t *testing.T) {
+	fake := withFakeCluster(t)
+
 	origResolveSourceDir := resolveSourceDirForApply
 	origRenderResources := renderResourcesForApply
-	origInjectLabels := injectReleaseLabelsForApply
-	origNewClient := newK8sClientForApply
-	origEnsureNamespace := ensureNamespaceForApply
-	origApplyRelease := applyReleaseForApply
 	t.Cleanup(func() {
 		resolveSourceDirForApply = origResolveSourceDir
 		renderResourcesForApply = origRenderResources
-		injectReleaseLabelsForApply = origInjectLabels
-		newK8sClientForApply = origNewClient
-		ensureNamespaceForApply = origEnsureNamespace
-		applyReleaseForApply = origApplyRelease
 	})
-
-	expectedClient := &k8s.Client{}
-	var ensuredNamespace string
 
 	resolveSourceDirForApply = func(source string, noCache bool) (string, error) {
 		return "/tmp/fake-source", nil
@@ -145,42 +143,22 @@ func TestRunApply_CreatesNamespaceWhenEnabled(t *testing.T) {
 			},
 		}, nil
 	}
-	injectReleaseLabelsForApply = func(resources []k8s.Resource, releaseName string) []k8s.Resource {
-		return resources
-	}
-	newK8sClientForApply = func(kubeContext, namespace string) (*k8s.Client, error) {
-		return expectedClient, nil
-	}
-	ensureNamespaceForApply = func(ctx context.Context, client *k8s.Client, namespace string) error {
-		assert.Same(t, expectedClient, client)
-		ensuredNamespace = namespace
-		return nil
-	}
-	applyReleaseForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string, resources []k8s.Resource) error {
-		return nil
-	}
 
 	err := runApply(&cobra.Command{}, "my-release", ".", applyOpts{
-		templateOpts: templateOpts{
-			namespace: "dev",
-		},
+		templateOpts:    templateOpts{namespace: "dev"},
 		createNamespace: true,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "dev", ensuredNamespace)
-}
 
-func TestEnsureApplyNamespace_ReturnsWrappedError(t *testing.T) {
-	origEnsure := ensureNamespaceForApply
-	t.Cleanup(func() {
-		ensureNamespaceForApply = origEnsure
-	})
+	assert.True(t, fake.Namespaces["dev"], "namespace should be ensured")
+	require.Len(t, fake.ApplyCalls, 1)
+	assert.Equal(t, "dev", fake.ApplyCalls[0].Namespace)
+	assert.Equal(t, "my-release", fake.ApplyCalls[0].Release)
 
-	ensureNamespaceForApply = func(ctx context.Context, client *k8s.Client, namespace string) error {
-		return errors.New("boom")
-	}
-
-	err := ensureApplyNamespace(context.Background(), &k8s.Client{}, "dev", true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `ensuring namespace "dev"`)
+	// Inject release labels must have run before apply.
+	require.Len(t, fake.ApplyCalls[0].Resources, 1)
+	meta := fake.ApplyCalls[0].Resources[0]["metadata"].(map[string]interface{})
+	labels, ok := meta["labels"].(map[string]interface{})
+	require.True(t, ok, "release labels should be injected onto resource metadata")
+	assert.Equal(t, "my-release", labels["ct.cloudticon.com/instance"])
 }

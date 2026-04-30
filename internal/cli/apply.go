@@ -17,12 +17,6 @@ type applyOpts struct {
 
 var resolveSourceDirForApply = resolveSourceDir
 var renderResourcesForApply = renderResources
-var injectReleaseLabelsForApply = k8s.InjectReleaseLabels
-var newK8sClientForApply = k8s.NewClient
-var ensureNamespaceForApply = k8s.EnsureNamespace
-var applyReleaseForApply = func(ctx context.Context, client *k8s.Client, namespace, releaseName string, resources []k8s.Resource) error {
-	return client.ApplyRelease(ctx, namespace, releaseName, resources)
-}
 
 func newApplyCmd() *cobra.Command {
 	var opts applyOpts
@@ -64,18 +58,18 @@ func runApply(cmd *cobra.Command, releaseName, source string, opts applyOpts) er
 		return err
 	}
 
-	resources = injectReleaseLabelsForApply(resources, releaseName)
+	resources = k8s.InjectReleaseLabels(resources, releaseName)
 
-	client, err := newK8sClientForApply(opts.context, opts.namespace)
+	cluster, err := newClusterFn(opts.context, opts.namespace)
 	if err != nil {
 		return fmt.Errorf("creating k8s client: %w", err)
 	}
 
-	if err := ensureApplyNamespace(cmd.Context(), client, opts.namespace, opts.createNamespace); err != nil {
+	if err := ensureApplyNamespace(cmd.Context(), cluster, opts.namespace, opts.createNamespace); err != nil {
 		return err
 	}
 
-	if err := applyReleaseForApply(cmd.Context(), client, opts.namespace, releaseName, resources); err != nil {
+	if err := cluster.ApplyRelease(cmd.Context(), opts.namespace, releaseName, resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}
 
@@ -90,11 +84,11 @@ func runApply(cmd *cobra.Command, releaseName, source string, opts applyOpts) er
 	return nil
 }
 
-func ensureApplyNamespace(ctx context.Context, client *k8s.Client, namespace string, createNamespace bool) error {
+func ensureApplyNamespace(ctx context.Context, cluster k8s.Cluster, namespace string, createNamespace bool) error {
 	if !createNamespace || namespace == "" {
 		return nil
 	}
-	if err := ensureNamespaceForApply(ctx, client, namespace); err != nil {
+	if err := cluster.EnsureNamespace(ctx, namespace); err != nil {
 		return fmt.Errorf("ensuring namespace %q: %w", namespace, err)
 	}
 	return nil
