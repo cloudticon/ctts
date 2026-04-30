@@ -72,7 +72,7 @@ var runWatchPodHealthFn = func(ctx context.Context, client *k8s.Client, podName 
 }
 
 var runSyncFn = func(ctx context.Context, client *k8s.Client, selector map[string]string, rule SyncRule, ready func()) error {
-	syncer := ctsync.NewSyncer(client, selector, ctsync.SyncRule{
+	syncer := ctsync.NewSyncer(k8s.AsPodExecutor(client), client.Namespace, selector, ctsync.SyncRule{
 		From:    rule.From,
 		To:      rule.To,
 		Exclude: append([]string(nil), rule.Exclude...),

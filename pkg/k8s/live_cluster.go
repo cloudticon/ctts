@@ -161,3 +161,10 @@ var (
 	_ Cluster     = (*liveCluster)(nil)
 	_ PodExecutor = (*liveCluster)(nil)
 )
+
+// AsPodExecutor adapts an existing *Client to the PodExecutor port. It is a
+// migration helper for callers that still build *Client directly (notably
+// internal/dev). Removed once those callers take a Cluster from RunOpts (PR4).
+func AsPodExecutor(c *Client) PodExecutor {
+	return &liveCluster{client: c, logger: log.Default()}
+}
