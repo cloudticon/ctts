@@ -25,7 +25,7 @@ type FakePod struct {
 	Labels    k8s.Selector
 	Healthy   bool
 
-	// LogContent, when non-empty, is written to StreamLogs' writer once and
+	// LogContent, when non-empty, is written to streamLogs' writer once and
 	// the call then blocks on ctx until cancellation.
 	LogContent string
 }
@@ -64,7 +64,7 @@ type Fake struct {
 	// Pods keyed by namespace -> pod-name -> *FakePod.
 	Pods map[string]map[string]*FakePod
 
-	// Namespaces tracked by EnsureNamespace.
+	// Namespaces tracked by ensureNamespace.
 	Namespaces map[string]bool
 
 	// Hooks override the default (no-op success) behavior. Each hook is
@@ -100,7 +100,7 @@ func NewFake() *Fake {
 }
 
 // ActiveOps returns the count of goroutines currently blocked inside a
-// long-lived Cluster method (Exec, ExecPod, PortForward, StreamLogs, WatchPod).
+// long-lived Cluster method (Exec, ExecPod, portForward, streamLogs, WatchPod).
 // Useful for cancel-cascade assertions: after cancel, this should drop to 0.
 func (f *Fake) ActiveOps() int { return int(atomic.LoadInt32(&f.activeOps)) }
 
@@ -111,7 +111,7 @@ func (f *Fake) HasActiveExec() bool { return f.ActiveOps() > 0 }
 // AddPod is a convenience for seeding a pod. Returns the same pod for chaining.
 //
 // FakePod fields are read under the Fake's mutex; mutating them after AddPod
-// races with WaitPod/StreamLogs/findHealthyPod. Use SetPodHealthy to flip
+// races with WaitPod/streamLogs/findHealthyPod. Use SetPodHealthy to flip
 // readiness from a test goroutine.
 func (f *Fake) AddPod(p *FakePod) *FakePod {
 	f.mu.Lock()

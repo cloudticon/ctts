@@ -39,12 +39,12 @@ func TestStreamLogs_ReconnectsAndWritesPrefixedLines(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	waitForPodForLogsFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodForLogsFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "pod-1", nil
 	}
 
 	streamCalls := 0
-	streamPodLogsForLogsFn = func(_ context.Context, _ *Client, _ string) (io.ReadCloser, error) {
+	streamPodLogsForLogsFn = func(_ context.Context, _ *client, _ string) (io.ReadCloser, error) {
 		streamCalls++
 		switch streamCalls {
 		case 1:
@@ -63,7 +63,7 @@ func TestStreamLogs_ReconnectsAndWritesPrefixedLines(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := StreamLogs(ctx, &Client{}, "remix", map[string]string{"app": "remix"}, &out)
+	err := streamLogs(ctx, &client{}, "remix", map[string]string{"app": "remix"}, &out)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, streamCalls, 2)
 	assert.Contains(t, out.String(), "[remix]")
@@ -77,22 +77,22 @@ func TestStreamLogs_ReturnsWaitError(t *testing.T) {
 		waitForPodForLogsFn = origWait
 	})
 
-	waitForPodForLogsFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodForLogsFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "", errors.New("no pod found")
 	}
 
 	var out bytes.Buffer
-	err := StreamLogs(context.Background(), &Client{}, "remix", map[string]string{"app": "remix"}, &out)
+	err := streamLogs(context.Background(), &client{}, "remix", map[string]string{"app": "remix"}, &out)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pod found")
 }
 
 func TestStreamLogs_ValidatesInput(t *testing.T) {
-	err := StreamLogs(context.Background(), nil, "remix", nil, io.Discard)
+	err := streamLogs(context.Background(), nil, "remix", nil, io.Discard)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "client is required")
 
-	err = StreamLogs(context.Background(), &Client{}, "remix", nil, nil)
+	err = streamLogs(context.Background(), &client{}, "remix", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "writer is required")
 }

@@ -56,15 +56,15 @@ func TestExec_ResolvesPodAndRunsShellCommand(t *testing.T) {
 	})
 	stubTerminalFns(t)
 
-	waitForPodForExecFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodForExecFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "pod-1", nil
 	}
 
 	called := false
 	var gotPod string
 	var gotCmd []string
-	var gotOpts ExecStreamOpts
-	execStreamRunnerFn = func(_ context.Context, _ *Client, pod string, cmd []string, opts ExecStreamOpts) error {
+	var gotOpts execStreamOpts
+	execStreamRunnerFn = func(_ context.Context, _ *client, pod string, cmd []string, opts execStreamOpts) error {
 		called = true
 		gotPod = pod
 		gotCmd = append([]string(nil), cmd...)
@@ -72,7 +72,7 @@ func TestExec_ResolvesPodAndRunsShellCommand(t *testing.T) {
 		return nil
 	}
 
-	err := Exec(context.Background(), &Client{}, map[string]string{"app": "web"}, "npm run dev")
+	err := execInteractive(context.Background(), &client{}, map[string]string{"app": "web"}, "npm run dev")
 	require.NoError(t, err)
 	assert.True(t, called)
 	assert.Equal(t, "pod-1", gotPod)
@@ -87,11 +87,11 @@ func TestExec_ReturnsWaitForPodError(t *testing.T) {
 		waitForPodForExecFn = origWait
 	})
 
-	waitForPodForExecFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodForExecFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "", errors.New("cannot find pod")
 	}
 
-	err := Exec(context.Background(), &Client{}, map[string]string{"app": "web"}, "bash")
+	err := execInteractive(context.Background(), &client{}, map[string]string{"app": "web"}, "bash")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot find pod")
 }
@@ -104,7 +104,7 @@ func TestExecStream_BuildsExecutorAndStreams(t *testing.T) {
 		newExecExecutorForURL = origNewExecutor
 	})
 
-	buildExecURLFn = func(_ *Client, _ string, _ []string, _ ExecStreamOpts) (*url.URL, error) {
+	buildExecURLFn = func(_ *client, _ string, _ []string, _ execStreamOpts) (*url.URL, error) {
 		return url.Parse("https://example.invalid/api/v1/namespaces/dev/pods/pod-1/exec")
 	}
 
@@ -119,7 +119,7 @@ func TestExecStream_BuildsExecutorAndStreams(t *testing.T) {
 	out := &bytes.Buffer{}
 	errOut := &bytes.Buffer{}
 
-	err := ExecStream(context.Background(), &Client{Config: &rest.Config{}}, "pod-1", []string{"echo", "ok"}, ExecStreamOpts{
+	err := execStream(context.Background(), &client{Config: &rest.Config{}}, "pod-1", []string{"echo", "ok"}, execStreamOpts{
 		Stdin:  in,
 		Stdout: out,
 		Stderr: errOut,
@@ -134,19 +134,19 @@ func TestExecStream_BuildsExecutorAndStreams(t *testing.T) {
 }
 
 func TestExecStream_ValidatesInput(t *testing.T) {
-	err := ExecStream(context.Background(), nil, "pod-1", []string{"echo"}, ExecStreamOpts{})
+	err := execStream(context.Background(), nil, "pod-1", []string{"echo"}, execStreamOpts{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "client is required")
 
-	err = ExecStream(context.Background(), &Client{}, "pod-1", []string{"echo"}, ExecStreamOpts{})
+	err = execStream(context.Background(), &client{}, "pod-1", []string{"echo"}, execStreamOpts{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rest config is required")
 
-	err = ExecStream(context.Background(), &Client{Config: &rest.Config{}}, "", []string{"echo"}, ExecStreamOpts{})
+	err = execStream(context.Background(), &client{Config: &rest.Config{}}, "", []string{"echo"}, execStreamOpts{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pod name is required")
 
-	err = ExecStream(context.Background(), &Client{Config: &rest.Config{}}, "pod-1", nil, ExecStreamOpts{})
+	err = execStream(context.Background(), &client{Config: &rest.Config{}}, "pod-1", nil, execStreamOpts{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "command is required")
 }
@@ -157,13 +157,13 @@ func TestExecSimple_UsesNonTTYDefaults(t *testing.T) {
 		execStreamRunnerFn = origRunner
 	})
 
-	got := ExecStreamOpts{}
-	execStreamRunnerFn = func(_ context.Context, _ *Client, _ string, _ []string, opts ExecStreamOpts) error {
+	got := execStreamOpts{}
+	execStreamRunnerFn = func(_ context.Context, _ *client, _ string, _ []string, opts execStreamOpts) error {
 		got = opts
 		return nil
 	}
 
-	err := ExecSimple(context.Background(), &Client{}, "pod-1", []string{"ls"})
+	err := execSimple(context.Background(), &client{}, "pod-1", []string{"ls"})
 	require.NoError(t, err)
 	assert.False(t, got.TTY)
 	assert.NotNil(t, got.Stdout)
@@ -184,10 +184,10 @@ func TestExec_SetsRawModeAndRestores(t *testing.T) {
 		getTermSizeFn = origGetSize
 	})
 
-	waitForPodForExecFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodForExecFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "pod-1", nil
 	}
-	execStreamRunnerFn = func(_ context.Context, _ *Client, _ string, _ []string, _ ExecStreamOpts) error {
+	execStreamRunnerFn = func(_ context.Context, _ *client, _ string, _ []string, _ execStreamOpts) error {
 		return nil
 	}
 	getTermSizeFn = func(int) (int, int, error) { return 120, 40, nil }
@@ -203,7 +203,7 @@ func TestExec_SetsRawModeAndRestores(t *testing.T) {
 		return nil
 	}
 
-	err := Exec(context.Background(), &Client{}, map[string]string{"app": "web"}, "bash")
+	err := execInteractive(context.Background(), &client{}, map[string]string{"app": "web"}, "bash")
 	require.NoError(t, err)
 	assert.True(t, rawCalled, "makeRaw should be called")
 	assert.True(t, restoreCalled, "restore should be called after exec")
@@ -219,7 +219,7 @@ func TestExec_ReturnsRawModeError(t *testing.T) {
 		getTermSizeFn = origGetSize
 	})
 
-	waitForPodForExecFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodForExecFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "pod-1", nil
 	}
 	getTermSizeFn = func(int) (int, int, error) { return 80, 24, nil }
@@ -227,7 +227,7 @@ func TestExec_ReturnsRawModeError(t *testing.T) {
 		return nil, errors.New("not a terminal")
 	}
 
-	err := Exec(context.Background(), &Client{}, map[string]string{"app": "web"}, "bash")
+	err := execInteractive(context.Background(), &client{}, map[string]string{"app": "web"}, "bash")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "setting terminal raw mode")
 }
@@ -277,7 +277,7 @@ func TestExecStream_PassesTerminalSizeQueue(t *testing.T) {
 		newExecExecutorForURL = origNewExecutor
 	})
 
-	buildExecURLFn = func(_ *Client, _ string, _ []string, _ ExecStreamOpts) (*url.URL, error) {
+	buildExecURLFn = func(_ *client, _ string, _ []string, _ execStreamOpts) (*url.URL, error) {
 		return url.Parse("https://example.invalid/exec")
 	}
 
@@ -288,7 +288,7 @@ func TestExecStream_PassesTerminalSizeQueue(t *testing.T) {
 
 	fakeSizeQueue := &staticSizeQueue{size: remotecommand.TerminalSize{Width: 100, Height: 50}}
 
-	err := ExecStream(context.Background(), &Client{Config: &rest.Config{}}, "pod-1", []string{"bash"}, ExecStreamOpts{
+	err := execStream(context.Background(), &client{Config: &rest.Config{}}, "pod-1", []string{"bash"}, execStreamOpts{
 		Stdout:            &bytes.Buffer{},
 		TTY:               true,
 		TerminalSizeQueue: fakeSizeQueue,

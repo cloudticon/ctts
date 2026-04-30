@@ -25,8 +25,8 @@ var (
 	forwardPortsFn = forwardPorts
 )
 
-// PortForward starts port forwarding for the selected workload and reconnects on connection loss.
-func PortForward(ctx context.Context, c *Client, selector map[string]string, ports []PortRule) error {
+// portForward starts port forwarding for the selected workload and reconnects on connection loss.
+func portForward(ctx context.Context, c *client, selector map[string]string, ports []PortRule) error {
 	if c == nil {
 		return errors.New("client is required")
 	}
@@ -54,7 +54,7 @@ func PortForward(ctx context.Context, c *Client, selector map[string]string, por
 	}
 }
 
-func forwardPorts(ctx context.Context, c *Client, pod string, ports []PortRule) error {
+func forwardPorts(ctx context.Context, c *client, pod string, ports []PortRule) error {
 	if c.Config == nil {
 		return errors.New("rest config is required for port-forwarding")
 	}

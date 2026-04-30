@@ -12,10 +12,10 @@ import (
 )
 
 // NewLiveCluster builds a Cluster backed by client-go and the running
-// kubeconfig. Empty fields in opts fall back to the same defaults NewClient
+// kubeconfig. Empty fields in opts fall back to the same defaults newClient
 // uses today (current-context, kubeconfig namespace or "default").
 func NewLiveCluster(opts LiveOpts) (Cluster, error) {
-	c, err := NewClient(opts.KubeContext, opts.DefaultNamespace)
+	c, err := newClient(opts.KubeContext, opts.DefaultNamespace)
 	if err != nil {
 		return nil, err
 	}
@@ -26,19 +26,19 @@ func NewLiveCluster(opts LiveOpts) (Cluster, error) {
 	return &liveCluster{client: c, logger: logger}, nil
 }
 
-// liveCluster is the production adapter. It delegates to the existing *Client
+// liveCluster is the production adapter. It delegates to the existing *client
 // helpers while presenting the Cluster port to consumers.
 type liveCluster struct {
-	client *Client
+	client *client
 	logger *log.Logger
 }
 
-// scopedClient returns a *Client whose Namespace field is ns. If ns is empty
+// scopedClient returns a *client whose Namespace field is ns. If ns is empty
 // or matches the default, the receiver client is reused; otherwise a shallow
 // copy is taken so concurrent calls with different ns don't race on the field.
 // The shared gvrCache map is safe because client-go discovery is read-mostly
 // and the live adapter is single-process — see PR3 follow-up if this changes.
-func (lc *liveCluster) scopedClient(ns string) *Client {
+func (lc *liveCluster) scopedClient(ns string) *client {
 	if ns == "" || ns == lc.client.Namespace {
 		return lc.client
 	}
@@ -54,19 +54,19 @@ func (lc *liveCluster) ApplyRelease(ctx context.Context, ns, release string, res
 	if ns == "" {
 		ns = c.Namespace
 	}
-	return c.ApplyRelease(ctx, ns, release, resources)
+	return c.applyRelease(ctx, ns, release, resources)
 }
 
 func (lc *liveCluster) DeleteRelease(ctx context.Context, ns, release string) (int, error) {
 	c := lc.scopedClient(ns)
-	refs, err := LoadInventory(ctx, c, ns, release)
+	refs, err := loadInventory(ctx, c, ns, release)
 	if err != nil {
 		return 0, fmt.Errorf("loading inventory for release %q: %w", release, err)
 	}
-	if err := c.Delete(ctx, refs); err != nil {
+	if err := c.del(ctx, refs); err != nil {
 		return 0, fmt.Errorf("deleting release resources: %w", err)
 	}
-	if err := DeleteInventory(ctx, c, ns, release); err != nil {
+	if err := deleteInventory(ctx, c, ns, release); err != nil {
 		return 0, fmt.Errorf("deleting release inventory: %w", err)
 	}
 	return len(refs), nil
@@ -74,24 +74,24 @@ func (lc *liveCluster) DeleteRelease(ctx context.Context, ns, release string) (i
 
 func (lc *liveCluster) ListReleases(ctx context.Context, ns string, allNs bool) ([]ReleaseInfo, error) {
 	c := lc.scopedClient(ns)
-	return ListReleases(ctx, c, ns, allNs)
+	return listReleases(ctx, c, ns, allNs)
 }
 
 func (lc *liveCluster) EnsureNamespace(ctx context.Context, ns string) error {
 	if ns == "" {
 		return nil
 	}
-	return EnsureNamespace(ctx, lc.client, ns)
+	return ensureNamespace(ctx, lc.client, ns)
 }
 
 // Live workload ops.
 
 func (lc *liveCluster) WaitPod(ctx context.Context, ns string, sel Selector) (string, error) {
-	return WaitForPod(ctx, lc.scopedClient(ns), sel)
+	return waitForPod(ctx, lc.scopedClient(ns), sel)
 }
 
 func (lc *liveCluster) WatchPod(ctx context.Context, ns, pod string) error {
-	return WatchPodHealth(ctx, lc.scopedClient(ns), pod)
+	return watchPodHealth(ctx, lc.scopedClient(ns), pod)
 }
 
 func (lc *liveCluster) Exec(ctx context.Context, ns string, sel Selector, opts ExecOpts) error {
@@ -107,10 +107,10 @@ func (lc *liveCluster) ExecPod(ctx context.Context, ns, pod string, opts ExecOpt
 	return lc.execPodOn(ctx, lc.scopedClient(ns), pod, opts)
 }
 
-// execPodOn applies TTY raw-mode handling when needed and forwards to ExecStream.
+// execPodOn applies TTY raw-mode handling when needed and forwards to execStream.
 // In PR4 the raw-mode plumbing moves to internal/tty; the live adapter will then
-// only translate ExecOpts -> ExecStreamOpts and call ExecStream directly.
-func (lc *liveCluster) execPodOn(ctx context.Context, c *Client, pod string, opts ExecOpts) error {
+// only translate ExecOpts -> execStreamOpts and call execStream directly.
+func (lc *liveCluster) execPodOn(ctx context.Context, c *client, pod string, opts ExecOpts) error {
 	if c == nil {
 		return errors.New("client is required")
 	}
@@ -121,7 +121,7 @@ func (lc *liveCluster) execPodOn(ctx context.Context, c *Client, pod string, opt
 		return errors.New("command is required")
 	}
 
-	streamOpts := ExecStreamOpts{
+	streamOpts := execStreamOpts{
 		Container:         opts.Container,
 		Stdin:             opts.Stdin,
 		Stdout:            opts.Stdout,
@@ -149,11 +149,11 @@ func (lc *liveCluster) execPodOn(ctx context.Context, c *Client, pod string, opt
 }
 
 func (lc *liveCluster) PortForward(ctx context.Context, ns string, sel Selector, ports []PortRule) error {
-	return PortForward(ctx, lc.scopedClient(ns), sel, ports)
+	return portForward(ctx, lc.scopedClient(ns), sel, ports)
 }
 
 func (lc *liveCluster) StreamLogs(ctx context.Context, ns, target string, sel Selector, w io.Writer) error {
-	return StreamLogs(ctx, lc.scopedClient(ns), target, sel, w)
+	return streamLogs(ctx, lc.scopedClient(ns), target, sel, w)
 }
 
 // Compile-time guarantee that *liveCluster satisfies both ports.
@@ -161,10 +161,3 @@ var (
 	_ Cluster     = (*liveCluster)(nil)
 	_ PodExecutor = (*liveCluster)(nil)
 )
-
-// AsPodExecutor adapts an existing *Client to the PodExecutor port. It is a
-// migration helper for callers that still build *Client directly (notably
-// internal/dev). Removed once those callers take a Cluster from RunOpts (PR4).
-func AsPodExecutor(c *Client) PodExecutor {
-	return &liveCluster{client: c, logger: log.Default()}
-}

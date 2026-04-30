@@ -27,7 +27,7 @@ type ResourceRef struct {
 // Delete removes resources and continues on NotFound errors.
 // Deletion order is safety-aware: namespaced resources first, then Namespace objects,
 // and inventory ConfigMaps at the very end.
-func (c *Client) Delete(ctx context.Context, resources []ResourceRef) error {
+func (c *client) del(ctx context.Context, resources []ResourceRef) error {
 	ordered := orderForDelete(resources)
 	var errs []error
 
@@ -43,7 +43,7 @@ func (c *Client) Delete(ctx context.Context, resources []ResourceRef) error {
 	return fmt.Errorf("deleting resources: %w", errors.Join(errs...))
 }
 
-func (c *Client) deleteOne(ctx context.Context, ref ResourceRef) error {
+func (c *client) deleteOne(ctx context.Context, ref ResourceRef) error {
 	info, err := c.resolveResourceInfo(ref.APIVersion, ref.Kind)
 	if err != nil {
 		return fmt.Errorf("resolving resource info for %s %s: %w", ref.APIVersion, ref.Kind, err)

@@ -16,7 +16,7 @@ import (
 
 var (
 	waitForPodForExecFn   = waitForPod
-	execStreamRunnerFn    = ExecStream
+	execStreamRunnerFn    = execStream
 	buildExecURLFn        = buildExecURL
 	newExecExecutorForURL = remotecommand.NewSPDYExecutor
 	parameterCodec runtime.ParameterCodec = func() runtime.ParameterCodec {
@@ -30,8 +30,8 @@ var (
 	getTermSizeFn = func(fd int) (int, int, error) { return term.GetSize(fd) }
 )
 
-// ExecStreamOpts configures Kubernetes exec stream behavior.
-type ExecStreamOpts struct {
+// execStreamOpts configures Kubernetes exec stream behavior.
+type execStreamOpts struct {
 	Container string
 
 	Stdin  io.Reader
@@ -102,8 +102,10 @@ func (q *termSizeQueue) stop() {
 	}
 }
 
-// Exec runs a shell command in the first running pod matching selector and attaches local stdio.
-func Exec(ctx context.Context, c *Client, selector map[string]string, command string) error {
+// execInteractive runs a shell command in the first running pod matching
+// selector and attaches local stdio in raw TTY mode. Used internally by
+// liveCluster.Exec when callers want full terminal semantics.
+func execInteractive(ctx context.Context, c *client, selector map[string]string, command string) error {
 	if c == nil {
 		return errors.New("client is required")
 	}
@@ -123,7 +125,7 @@ func Exec(ctx context.Context, c *Client, selector map[string]string, command st
 	sizeQueue := newTermSizeQueue(fd)
 	defer sizeQueue.stop()
 
-	return execStreamRunnerFn(ctx, c, pod, []string{"/bin/sh", "-c", command}, ExecStreamOpts{
+	return execStreamRunnerFn(ctx, c, pod, []string{"/bin/sh", "-c", command}, execStreamOpts{
 		Stdin:             os.Stdin,
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
@@ -132,16 +134,16 @@ func Exec(ctx context.Context, c *Client, selector map[string]string, command st
 	})
 }
 
-// ExecSimple runs a command without TTY and discards output.
-func ExecSimple(ctx context.Context, c *Client, pod string, cmd []string) error {
-	return execStreamRunnerFn(ctx, c, pod, cmd, ExecStreamOpts{
+// execSimple runs a command without TTY and discards output.
+func execSimple(ctx context.Context, c *client, pod string, cmd []string) error {
+	return execStreamRunnerFn(ctx, c, pod, cmd, execStreamOpts{
 		Stdout: io.Discard,
 		Stderr: io.Discard,
 	})
 }
 
-// ExecStream executes a command in a pod and streams I/O according to options.
-func ExecStream(ctx context.Context, c *Client, pod string, cmd []string, opts ExecStreamOpts) error {
+// execStream executes a command in a pod and streams I/O according to options.
+func execStream(ctx context.Context, c *client, pod string, cmd []string, opts execStreamOpts) error {
 	if c == nil {
 		return errors.New("client is required")
 	}
@@ -181,7 +183,7 @@ func ExecStream(ctx context.Context, c *Client, pod string, cmd []string, opts E
 	return nil
 }
 
-func buildExecURL(c *Client, pod string, cmd []string, opts ExecStreamOpts) (*url.URL, error) {
+func buildExecURL(c *client, pod string, cmd []string, opts execStreamOpts) (*url.URL, error) {
 	if c.CoreV1 == nil {
 		return nil, errors.New("kubernetes core/v1 client is required")
 	}

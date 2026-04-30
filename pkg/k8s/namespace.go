@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func EnsureNamespace(ctx context.Context, client *Client, namespace string) error {
+func ensureNamespace(ctx context.Context, client *client, namespace string) error {
 	if client == nil || client.CoreV1 == nil {
 		return errors.New("k8s client is required")
 	}

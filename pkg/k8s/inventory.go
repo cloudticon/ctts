@@ -24,7 +24,7 @@ type ReleaseInfo struct {
 	Resources int    `json:"resources" yaml:"resources"`
 }
 
-func SaveInventory(ctx context.Context, client *Client, namespace, releaseName string, resources []Resource) error {
+func saveInventory(ctx context.Context, client *client, namespace, releaseName string, resources []Resource) error {
 	if client == nil || client.CoreV1 == nil {
 		return errors.New("k8s client is required")
 	}
@@ -37,7 +37,7 @@ func SaveInventory(ctx context.Context, client *Client, namespace, releaseName s
 		return err
 	}
 
-	refs, err := ResourcesToRefs(resources)
+	refs, err := resourcesToRefs(resources)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func SaveInventory(ctx context.Context, client *Client, namespace, releaseName s
 	return nil
 }
 
-func LoadInventory(ctx context.Context, client *Client, namespace, releaseName string) ([]ResourceRef, error) {
+func loadInventory(ctx context.Context, client *client, namespace, releaseName string) ([]ResourceRef, error) {
 	if client == nil || client.CoreV1 == nil {
 		return nil, errors.New("k8s client is required")
 	}
@@ -119,7 +119,7 @@ func LoadInventory(ctx context.Context, client *Client, namespace, releaseName s
 	return refs, nil
 }
 
-func DeleteInventory(ctx context.Context, client *Client, namespace, releaseName string) error {
+func deleteInventory(ctx context.Context, client *client, namespace, releaseName string) error {
 	if client == nil || client.CoreV1 == nil {
 		return errors.New("k8s client is required")
 	}
@@ -140,7 +140,7 @@ func DeleteInventory(ctx context.Context, client *Client, namespace, releaseName
 	return nil
 }
 
-func ListReleases(ctx context.Context, client *Client, namespace string, allNamespaces bool) ([]ReleaseInfo, error) {
+func listReleases(ctx context.Context, client *client, namespace string, allNamespaces bool) ([]ReleaseInfo, error) {
 	if client == nil || client.CoreV1 == nil {
 		return nil, errors.New("k8s client is required")
 	}
@@ -199,7 +199,7 @@ func inventoryConfigMapName(releaseName string) string {
 	return inventoryConfigMapPrefix + releaseName
 }
 
-func resolveInventoryNamespace(client *Client, namespace string) (string, error) {
+func resolveInventoryNamespace(client *client, namespace string) (string, error) {
 	if namespace != "" {
 		return namespace, nil
 	}
@@ -209,7 +209,7 @@ func resolveInventoryNamespace(client *Client, namespace string) (string, error)
 	return "", errors.New("namespace is required")
 }
 
-func ResourcesToRefs(resources []Resource) ([]ResourceRef, error) {
+func resourcesToRefs(resources []Resource) ([]ResourceRef, error) {
 	refs := make([]ResourceRef, 0, len(resources))
 	for i, resource := range resources {
 		apiVersion, ok := resource["apiVersion"].(string)

@@ -18,13 +18,13 @@ func TestPortForward_ReconnectsAfterForwardError(t *testing.T) {
 	})
 
 	waitCalls := 0
-	waitForPodFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		waitCalls++
 		return "pod-1", nil
 	}
 
 	forwardCalls := 0
-	forwardPortsFn = func(_ context.Context, _ *Client, _ string, _ []PortRule) error {
+	forwardPortsFn = func(_ context.Context, _ *client, _ string, _ []PortRule) error {
 		forwardCalls++
 		if forwardCalls == 1 {
 			return errors.New("connection dropped")
@@ -32,7 +32,7 @@ func TestPortForward_ReconnectsAfterForwardError(t *testing.T) {
 		return nil
 	}
 
-	err := PortForward(context.Background(), &Client{}, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
+	err := portForward(context.Background(), &client{}, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
 	require.NoError(t, err)
 	assert.Equal(t, 2, waitCalls)
 	assert.Equal(t, 2, forwardCalls)
@@ -47,15 +47,15 @@ func TestPortForward_GracefulOnContextCancel(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	waitForPodFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "pod-1", nil
 	}
-	forwardPortsFn = func(_ context.Context, _ *Client, _ string, _ []PortRule) error {
+	forwardPortsFn = func(_ context.Context, _ *client, _ string, _ []PortRule) error {
 		cancel()
 		return context.Canceled
 	}
 
-	err := PortForward(ctx, &Client{}, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
+	err := portForward(ctx, &client{}, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
 	require.NoError(t, err)
 }
 
@@ -67,24 +67,24 @@ func TestPortForward_ReturnsWaitError(t *testing.T) {
 		forwardPortsFn = origForwardPortsFn
 	})
 
-	waitForPodFn = func(_ context.Context, _ *Client, _ map[string]string) (string, error) {
+	waitForPodFn = func(_ context.Context, _ *client, _ map[string]string) (string, error) {
 		return "", errors.New("no pods")
 	}
-	forwardPortsFn = func(_ context.Context, _ *Client, _ string, _ []PortRule) error {
+	forwardPortsFn = func(_ context.Context, _ *client, _ string, _ []PortRule) error {
 		return nil
 	}
 
-	err := PortForward(context.Background(), &Client{}, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
+	err := portForward(context.Background(), &client{}, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no pods")
 }
 
 func TestPortForward_ValidatesInput(t *testing.T) {
-	err := PortForward(context.Background(), nil, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
+	err := portForward(context.Background(), nil, map[string]string{"app": "web"}, []PortRule{{Local: 3000, Remote: 3000}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "client is required")
 
-	err = PortForward(context.Background(), &Client{}, map[string]string{"app": "web"}, nil)
+	err = portForward(context.Background(), &client{}, map[string]string{"app": "web"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one port rule is required")
 }

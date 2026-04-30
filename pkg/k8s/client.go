@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-type Client struct {
+type client struct {
 	CoreV1    corev1client.CoreV1Interface
 	Discovery discovery.DiscoveryInterface
 	Dynamic   dynamic.Interface
@@ -25,7 +25,7 @@ type resourceInfo struct {
 	Namespaced bool
 }
 
-func NewClient(kubeContext, namespace string) (*Client, error) {
+func newClient(kubeContext, namespace string) (*client, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	configOverrides := &clientcmd.ConfigOverrides{}
 	if kubeContext != "" {
@@ -70,7 +70,7 @@ func NewClient(kubeContext, namespace string) (*Client, error) {
 		return nil, fmt.Errorf("creating dynamic client: %w", err)
 	}
 
-	return &Client{
+	return &client{
 		CoreV1:    coreClient,
 		Discovery: discoveryClient,
 		Dynamic:   dynamicClient,
@@ -80,9 +80,9 @@ func NewClient(kubeContext, namespace string) (*Client, error) {
 	}, nil
 }
 
-// NewClientFromInterfaces creates a Client from pre-built interfaces (for testing).
-func NewClientFromInterfaces(coreV1 corev1client.CoreV1Interface, disc discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string) *Client {
-	return &Client{
+// newClientFromInterfaces creates a client from pre-built interfaces (for testing).
+func newClientFromInterfaces(coreV1 corev1client.CoreV1Interface, disc discovery.DiscoveryInterface, dyn dynamic.Interface, namespace string) *client {
+	return &client{
 		CoreV1:    coreV1,
 		Discovery: disc,
 		Dynamic:   dyn,

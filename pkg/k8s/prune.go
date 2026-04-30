@@ -2,9 +2,9 @@ package k8s
 
 import "fmt"
 
-// ComputeOrphaned returns resources that existed before but are no longer present.
+// computeOrphaned returns resources that existed before but are no longer present.
 // Comparison key is apiVersion+kind+namespace+name.
-func ComputeOrphaned(oldRefs, newRefs []ResourceRef) []ResourceRef {
+func computeOrphaned(oldRefs, newRefs []ResourceRef) []ResourceRef {
 	if len(oldRefs) == 0 {
 		return []ResourceRef{}
 	}

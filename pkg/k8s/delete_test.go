@@ -49,7 +49,7 @@ func TestDelete_ContinuesOnNotFound(t *testing.T) {
 		return false, nil, nil
 	})
 
-	err := c.Delete(context.Background(), []ResourceRef{
+	err := c.del(context.Background(), []ResourceRef{
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "default", Name: "missing"},
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "default", Name: "existing"},
 	})
@@ -66,7 +66,7 @@ func TestDelete_UsesClusterScopedClient(t *testing.T) {
 		},
 	})
 
-	err := c.Delete(context.Background(), []ResourceRef{
+	err := c.del(context.Background(), []ResourceRef{
 		{APIVersion: "v1", Kind: "Namespace", Name: "prod"},
 	})
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestDelete_ReturnsJoinedErrors(t *testing.T) {
 		return true, nil, errors.New("boom")
 	})
 
-	err := c.Delete(context.Background(), []ResourceRef{
+	err := c.del(context.Background(), []ResourceRef{
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "default", Name: "cfg1"},
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "default", Name: "cfg2"},
 	})

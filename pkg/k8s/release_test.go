@@ -19,7 +19,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-func newReleaseTestClient(t *testing.T) (*Client, *dynamicfake.FakeDynamicClient) {
+func newReleaseTestClient(t *testing.T) (*client, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
@@ -84,7 +84,7 @@ func newReleaseTestClient(t *testing.T) (*Client, *dynamicfake.FakeDynamicClient
 		return true, &cm, nil
 	})
 
-	c := &Client{
+	c := &client{
 		CoreV1:    fakeClientset.CoreV1(),
 		Discovery: fakeClientset.Discovery(),
 		Dynamic:   dynClient,
@@ -95,7 +95,7 @@ func newReleaseTestClient(t *testing.T) (*Client, *dynamicfake.FakeDynamicClient
 	return c, dynClient
 }
 
-func seedInventory(t *testing.T, c *Client, namespace, releaseName string, refs []ResourceRef) {
+func seedInventory(t *testing.T, c *client, namespace, releaseName string, refs []ResourceRef) {
 	t.Helper()
 	refsJSON, err := json.Marshal(refs)
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestApplyRelease_HappyPath(t *testing.T) {
 		},
 	}
 
-	err := c.ApplyRelease(context.Background(), "test-ns", "my-release", resources)
+	err := c.applyRelease(context.Background(), "test-ns", "my-release", resources)
 	require.NoError(t, err)
 
 	var patchCount, deleteCount int
@@ -164,7 +164,7 @@ func TestApplyRelease_PrunesOrphans(t *testing.T) {
 		},
 	}
 
-	err := c.ApplyRelease(context.Background(), "test-ns", "my-release", resources)
+	err := c.applyRelease(context.Background(), "test-ns", "my-release", resources)
 	require.NoError(t, err)
 
 	var deletedNames []string
@@ -192,7 +192,7 @@ func TestApplyRelease_NoOrphans_SameResources(t *testing.T) {
 		},
 	}
 
-	err := c.ApplyRelease(context.Background(), "test-ns", "my-release", resources)
+	err := c.applyRelease(context.Background(), "test-ns", "my-release", resources)
 	require.NoError(t, err)
 
 	var deleteCount int
@@ -220,7 +220,7 @@ func TestApplyRelease_ApplyError(t *testing.T) {
 		},
 	}
 
-	err := c.ApplyRelease(context.Background(), "test-ns", "my-release", resources)
+	err := c.applyRelease(context.Background(), "test-ns", "my-release", resources)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "applying resources")
 }
@@ -228,7 +228,7 @@ func TestApplyRelease_ApplyError(t *testing.T) {
 func TestApplyRelease_LoadInventoryError(t *testing.T) {
 	c, _ := newReleaseTestClient(t)
 
-	err := c.ApplyRelease(context.Background(), "test-ns", "", []Resource{})
+	err := c.applyRelease(context.Background(), "test-ns", "", []Resource{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "loading inventory")
 }
@@ -241,7 +241,7 @@ func TestApplyRelease_InvalidResourceRef(t *testing.T) {
 		{"kind": "ConfigMap"},
 	}
 
-	err := c.ApplyRelease(context.Background(), "test-ns", "my-release", resources)
+	err := c.applyRelease(context.Background(), "test-ns", "my-release", resources)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "building resource refs")
 }
@@ -250,6 +250,6 @@ func TestApplyRelease_EmptyResources(t *testing.T) {
 	c, _ := newReleaseTestClient(t)
 	c.Namespace = "test-ns"
 
-	err := c.ApplyRelease(context.Background(), "test-ns", "my-release", []Resource{})
+	err := c.applyRelease(context.Background(), "test-ns", "my-release", []Resource{})
 	require.NoError(t, err)
 }

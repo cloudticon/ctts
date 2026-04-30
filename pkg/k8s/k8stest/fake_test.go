@@ -90,7 +90,7 @@ func TestFake_WaitPod_BlocksUntilHealthy(t *testing.T) {
 
 func TestFake_LongLivedOpsCancelCleanly(t *testing.T) {
 	// This is the test pattern the runDevSession refactor (PR4) will rely on:
-	// after ctx cancel, every long-lived op (PortForward, StreamLogs, WatchPod,
+	// after ctx cancel, every long-lived op (portForward, streamLogs, WatchPod,
 	// Exec) returns and ActiveOps drops to zero.
 	f := k8stest.NewFake()
 	f.AddPod(&k8stest.FakePod{
