@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/cloudticon/ctts/pkg/k8s"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -12,13 +10,6 @@ import (
 type deleteOpts struct {
 	namespace string
 	context   string
-}
-
-var newK8sClientForDelete = k8s.NewClient
-var loadInventoryForDelete = k8s.LoadInventory
-var deleteInventoryForDelete = k8s.DeleteInventory
-var deleteResourcesForDelete = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
-	return client.Delete(ctx, resources)
 }
 
 func newDeleteCmd() *cobra.Command {
@@ -45,24 +36,16 @@ func init() {
 }
 
 func runDelete(cmd *cobra.Command, releaseName string, opts deleteOpts) error {
-	client, err := newK8sClientForDelete(opts.context, opts.namespace)
+	cluster, err := newClusterFn(opts.context, opts.namespace)
 	if err != nil {
 		return fmt.Errorf("creating k8s client: %w", err)
 	}
 
-	resources, err := loadInventoryForDelete(cmd.Context(), client, opts.namespace, releaseName)
+	deleted, err := cluster.DeleteRelease(cmd.Context(), opts.namespace, releaseName)
 	if err != nil {
-		return fmt.Errorf("loading inventory for release %q: %w", releaseName, err)
+		return err
 	}
 
-	if err := deleteResourcesForDelete(cmd.Context(), client, resources); err != nil {
-		return fmt.Errorf("deleting release resources: %w", err)
-	}
-
-	if err := deleteInventoryForDelete(cmd.Context(), client, opts.namespace, releaseName); err != nil {
-		return fmt.Errorf("deleting release inventory: %w", err)
-	}
-
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s release %s (%d resources)\n", color.HiRedString("deleted"), releaseName, len(resources))
+	fmt.Fprintf(cmd.ErrOrStderr(), "%s release %s (%d resources)\n", color.HiRedString("deleted"), releaseName, deleted)
 	return nil
 }

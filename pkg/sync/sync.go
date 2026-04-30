@@ -27,34 +27,21 @@ type SyncRule struct {
 
 // Syncer performs initial and incremental sync.
 type Syncer struct {
-	client   *k8s.Client
-	selector map[string]string
-	rule     SyncRule
-	podName  string
+	exec      k8s.PodExecutor
+	namespace string
+	selector  map[string]string
+	rule      SyncRule
+	podName   string
 }
 
-var (
-	waitForPodFn = func(ctx context.Context, client *k8s.Client, selector map[string]string) (string, error) {
-		return k8s.WaitForPod(ctx, client, selector)
-	}
-	execStreamFn = func(ctx context.Context, client *k8s.Client, pod string, cmd []string, stdin io.Reader) error {
-		return k8s.ExecStream(ctx, client, pod, cmd, k8s.ExecStreamOpts{
-			Stdin:  stdin,
-			Stdout: io.Discard,
-			Stderr: io.Discard,
-		})
-	}
-	execSimpleFn = func(ctx context.Context, client *k8s.Client, pod string, cmd []string) error {
-		return k8s.ExecSimple(ctx, client, pod, cmd)
-	}
-)
-
-// NewSyncer creates a Syncer instance.
-func NewSyncer(client *k8s.Client, selector map[string]string, rule SyncRule) *Syncer {
+// NewSyncer creates a Syncer instance bound to the given pod-executor port
+// and namespace. Selector identifies the workload pod the sync targets.
+func NewSyncer(exec k8s.PodExecutor, namespace string, selector map[string]string, rule SyncRule) *Syncer {
 	return &Syncer{
-		client:   client,
-		selector: selector,
-		rule:     rule,
+		exec:      exec,
+		namespace: namespace,
+		selector:  selector,
+		rule:      rule,
 	}
 }
 
@@ -74,14 +61,14 @@ func (s *Syncer) RunWithReady(ctx context.Context, ready func()) error {
 		defer signalReady()
 	}
 
-	if s.client == nil {
+	if s.exec == nil {
 		return errors.New("k8s client is required")
 	}
 	if strings.TrimSpace(s.rule.From) == "" || strings.TrimSpace(s.rule.To) == "" {
 		return errors.New("sync rule requires non-empty from and to")
 	}
 
-	pod, err := waitForPodFn(ctx, s.client, s.selector)
+	pod, err := s.exec.WaitPod(ctx, s.namespace, s.selector)
 	if err != nil {
 		return err
 	}
@@ -110,8 +97,25 @@ func (s *Syncer) RunWithReady(ctx context.Context, ready func()) error {
 	return ctx.Err()
 }
 
+func (s *Syncer) execStream(ctx context.Context, cmd []string, stdin io.Reader) error {
+	return s.exec.ExecPod(ctx, s.namespace, s.podName, k8s.ExecOpts{
+		Command: cmd,
+		Stdin:   stdin,
+		Stdout:  io.Discard,
+		Stderr:  io.Discard,
+	})
+}
+
+func (s *Syncer) execSimple(ctx context.Context, cmd []string) error {
+	return s.exec.ExecPod(ctx, s.namespace, s.podName, k8s.ExecOpts{
+		Command: cmd,
+		Stdout:  io.Discard,
+		Stderr:  io.Discard,
+	})
+}
+
 func (s *Syncer) ensureRemoteDir(ctx context.Context) error {
-	return execSimpleFn(ctx, s.client, s.podName, []string{"mkdir", "-p", s.rule.To})
+	return s.execSimple(ctx, []string{"mkdir", "-p", s.rule.To})
 }
 
 func (s *Syncer) initialSync(ctx context.Context) error {
@@ -133,7 +137,7 @@ func (s *Syncer) initialSync(ctx context.Context) error {
 	}
 
 	cmd := []string{"tar", "xf", "-", "-C", s.rule.To}
-	if err := execStreamFn(ctx, s.client, s.podName, cmd, bytes.NewReader(buf.Bytes())); err != nil {
+	if err := s.execStream(ctx, cmd, bytes.NewReader(buf.Bytes())); err != nil {
 		return err
 	}
 	return nil
@@ -164,7 +168,7 @@ func (s *Syncer) incrementalSync(ctx context.Context, changes []FileChange) erro
 		}
 		if written > 0 {
 			cmd := []string{"tar", "xf", "-", "-C", s.rule.To}
-			if err := execStreamFn(ctx, s.client, s.podName, cmd, bytes.NewReader(tarBuf.Bytes())); err != nil {
+			if err := s.execStream(ctx, cmd, bytes.NewReader(tarBuf.Bytes())); err != nil {
 				return err
 			}
 			syncedCount = written
@@ -174,7 +178,7 @@ func (s *Syncer) incrementalSync(ctx context.Context, changes []FileChange) erro
 	deletedCount := 0
 	for _, rel := range deleted {
 		remote := filepath.ToSlash(filepath.Join(s.rule.To, rel))
-		if err := execSimpleFn(ctx, s.client, s.podName, []string{"rm", "-rf", remote}); err != nil {
+		if err := s.execSimple(ctx, []string{"rm", "-rf", remote}); err != nil {
 			return err
 		}
 		deletedCount++

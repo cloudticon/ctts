@@ -14,8 +14,6 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
-const inventoryConfigMapPrefix = "ct-inventory-"
-
 // ResourceRef identifies a Kubernetes resource by API version, kind, name and optional namespace.
 type ResourceRef struct {
 	APIVersion string `json:"apiVersion"`
@@ -27,7 +25,7 @@ type ResourceRef struct {
 // Delete removes resources and continues on NotFound errors.
 // Deletion order is safety-aware: namespaced resources first, then Namespace objects,
 // and inventory ConfigMaps at the very end.
-func (c *Client) Delete(ctx context.Context, resources []ResourceRef) error {
+func (c *client) del(ctx context.Context, resources []ResourceRef) error {
 	ordered := orderForDelete(resources)
 	var errs []error
 
@@ -43,7 +41,7 @@ func (c *Client) Delete(ctx context.Context, resources []ResourceRef) error {
 	return fmt.Errorf("deleting resources: %w", errors.Join(errs...))
 }
 
-func (c *Client) deleteOne(ctx context.Context, ref ResourceRef) error {
+func (c *client) deleteOne(ctx context.Context, ref ResourceRef) error {
 	info, err := c.resolveResourceInfo(ref.APIVersion, ref.Kind)
 	if err != nil {
 		return fmt.Errorf("resolving resource info for %s %s: %w", ref.APIVersion, ref.Kind, err)
@@ -110,5 +108,5 @@ func isNamespaceResource(ref ResourceRef) bool {
 }
 
 func isInventoryConfigMap(ref ResourceRef) bool {
-	return ref.APIVersion == "v1" && ref.Kind == "ConfigMap" && strings.HasPrefix(ref.Name, inventoryConfigMapPrefix)
+	return ref.APIVersion == "v1" && ref.Kind == "ConfigMap" && strings.HasPrefix(ref.Name, inventoryCMPrefix)
 }

@@ -35,154 +35,62 @@ func TestDeleteCmd_DefaultFlags(t *testing.T) {
 	assert.Equal(t, "", kubeContext)
 }
 
-func TestRunDelete_DeletesResourcesAndInventory(t *testing.T) {
-	origNewClient := newK8sClientForDelete
-	origLoadInventory := loadInventoryForDelete
-	origDeleteResources := deleteResourcesForDelete
-	origDeleteInventory := deleteInventoryForDelete
-	t.Cleanup(func() {
-		newK8sClientForDelete = origNewClient
-		loadInventoryForDelete = origLoadInventory
-		deleteResourcesForDelete = origDeleteResources
-		deleteInventoryForDelete = origDeleteInventory
-	})
-
-	expectedClient := &k8s.Client{}
-	expectedResources := []k8s.ResourceRef{
-		{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "prod", Name: "web"},
-		{APIVersion: "v1", Kind: "Service", Namespace: "prod", Name: "web-svc"},
-	}
-	var flow []string
-
-	newK8sClientForDelete = func(kubeContext, namespace string) (*k8s.Client, error) {
-		assert.Equal(t, "staging", kubeContext)
-		assert.Equal(t, "prod", namespace)
-		flow = append(flow, "new-client")
-		return expectedClient, nil
-	}
-	loadInventoryForDelete = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) ([]k8s.ResourceRef, error) {
-		assert.Same(t, expectedClient, client)
-		assert.Equal(t, "prod", namespace)
-		assert.Equal(t, "my-release", releaseName)
-		flow = append(flow, "load-inventory")
-		return expectedResources, nil
-	}
-	deleteResourcesForDelete = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
-		assert.Same(t, expectedClient, client)
-		assert.Equal(t, expectedResources, resources)
-		flow = append(flow, "delete-resources")
-		return nil
-	}
-	deleteInventoryForDelete = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) error {
-		assert.Same(t, expectedClient, client)
-		assert.Equal(t, "prod", namespace)
-		assert.Equal(t, "my-release", releaseName)
-		flow = append(flow, "delete-inventory")
-		return nil
-	}
+func TestRunDelete_DeletesReleaseAndReportsCount(t *testing.T) {
+	fake := withFakeCluster(t)
+	seedRelease(t, fake, "prod", "my-release", 2)
 
 	stderr := new(bytes.Buffer)
 	cmd := &cobra.Command{}
 	cmd.SetErr(stderr)
 
-	err := runDelete(cmd, "my-release", deleteOpts{
+	require.NoError(t, runDelete(cmd, "my-release", deleteOpts{
 		namespace: "prod",
 		context:   "staging",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"new-client", "load-inventory", "delete-resources", "delete-inventory"}, flow)
+	}))
+
 	assert.Contains(t, stderr.String(), "deleted release my-release (2 resources)")
+	require.Len(t, fake.DeleteCalls, 1)
+	assert.Equal(t, "prod", fake.DeleteCalls[0].Namespace)
+	assert.Equal(t, "my-release", fake.DeleteCalls[0].Release)
+
+	// Inventory must be gone afterwards.
+	releases, err := fake.ListReleases(context.Background(), "prod", false)
+	require.NoError(t, err)
+	assert.Empty(t, releases)
+}
+
+func TestRunDelete_ReturnsZeroWhenInventoryEmpty(t *testing.T) {
+	withFakeCluster(t)
+	stderr := new(bytes.Buffer)
+	cmd := &cobra.Command{}
+	cmd.SetErr(stderr)
+
+	require.NoError(t, runDelete(cmd, "missing", deleteOpts{namespace: "prod"}))
+	assert.Contains(t, stderr.String(), "(0 resources)")
 }
 
 func TestRunDelete_ReturnsErrorWhenClientCreationFails(t *testing.T) {
-	origNewClient := newK8sClientForDelete
-	t.Cleanup(func() {
-		newK8sClientForDelete = origNewClient
-	})
-
-	newK8sClientForDelete = func(kubeContext, namespace string) (*k8s.Client, error) {
+	orig := newClusterFn
+	newClusterFn = func(kubeContext, namespace string) (k8s.Cluster, error) {
 		return nil, errors.New("boom")
 	}
+	t.Cleanup(func() { newClusterFn = orig })
 
 	err := runDelete(&cobra.Command{}, "my-release", deleteOpts{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "creating k8s client")
 }
 
-func TestRunDelete_ReturnsErrorWhenLoadInventoryFails(t *testing.T) {
-	origNewClient := newK8sClientForDelete
-	origLoadInventory := loadInventoryForDelete
-	t.Cleanup(func() {
-		newK8sClientForDelete = origNewClient
-		loadInventoryForDelete = origLoadInventory
-	})
-
-	expectedClient := &k8s.Client{}
-	newK8sClientForDelete = func(kubeContext, namespace string) (*k8s.Client, error) {
-		return expectedClient, nil
+func TestRunDelete_ReturnsErrorWhenDeleteFails(t *testing.T) {
+	fake := withFakeCluster(t)
+	wrapped := &errCluster{Cluster: fake, deleteErr: errors.New("delete failure")}
+	orig := newClusterFn
+	newClusterFn = func(kubeContext, namespace string) (k8s.Cluster, error) {
+		return wrapped, nil
 	}
-	loadInventoryForDelete = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) ([]k8s.ResourceRef, error) {
-		return nil, errors.New("inventory failure")
-	}
+	t.Cleanup(func() { newClusterFn = orig })
 
-	err := runDelete(&cobra.Command{}, "my-release", deleteOpts{})
+	err := runDelete(&cobra.Command{}, "my-release", deleteOpts{namespace: "prod"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "loading inventory for release")
-}
-
-func TestRunDelete_ReturnsErrorWhenDeleteResourcesFails(t *testing.T) {
-	origNewClient := newK8sClientForDelete
-	origLoadInventory := loadInventoryForDelete
-	origDeleteResources := deleteResourcesForDelete
-	t.Cleanup(func() {
-		newK8sClientForDelete = origNewClient
-		loadInventoryForDelete = origLoadInventory
-		deleteResourcesForDelete = origDeleteResources
-	})
-
-	expectedClient := &k8s.Client{}
-	newK8sClientForDelete = func(kubeContext, namespace string) (*k8s.Client, error) {
-		return expectedClient, nil
-	}
-	loadInventoryForDelete = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) ([]k8s.ResourceRef, error) {
-		return []k8s.ResourceRef{{APIVersion: "v1", Kind: "ConfigMap", Namespace: "prod", Name: "cfg"}}, nil
-	}
-	deleteResourcesForDelete = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
-		return errors.New("delete failed")
-	}
-
-	err := runDelete(&cobra.Command{}, "my-release", deleteOpts{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "deleting release resources")
-}
-
-func TestRunDelete_ReturnsErrorWhenDeleteInventoryFails(t *testing.T) {
-	origNewClient := newK8sClientForDelete
-	origLoadInventory := loadInventoryForDelete
-	origDeleteResources := deleteResourcesForDelete
-	origDeleteInventory := deleteInventoryForDelete
-	t.Cleanup(func() {
-		newK8sClientForDelete = origNewClient
-		loadInventoryForDelete = origLoadInventory
-		deleteResourcesForDelete = origDeleteResources
-		deleteInventoryForDelete = origDeleteInventory
-	})
-
-	expectedClient := &k8s.Client{}
-	newK8sClientForDelete = func(kubeContext, namespace string) (*k8s.Client, error) {
-		return expectedClient, nil
-	}
-	loadInventoryForDelete = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) ([]k8s.ResourceRef, error) {
-		return []k8s.ResourceRef{}, nil
-	}
-	deleteResourcesForDelete = func(ctx context.Context, client *k8s.Client, resources []k8s.ResourceRef) error {
-		return nil
-	}
-	deleteInventoryForDelete = func(ctx context.Context, client *k8s.Client, namespace, releaseName string) error {
-		return errors.New("cleanup failed")
-	}
-
-	err := runDelete(&cobra.Command{}, "my-release", deleteOpts{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "deleting release inventory")
+	assert.Contains(t, err.Error(), "delete failure")
 }

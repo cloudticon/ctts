@@ -4,9 +4,11 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +16,33 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// fakePodExecutor implements k8s.PodExecutor for tests. WaitFn / ExecFn are
+// optional hooks; zero-value is "always return pod-1 from WaitPod and succeed
+// silently on ExecPod".
+type fakePodExecutor struct {
+	mu        sync.Mutex
+	WaitFn    func(ctx context.Context, ns string, sel k8s.Selector) (string, error)
+	ExecFn    func(ctx context.Context, ns, pod string, opts k8s.ExecOpts) error
+	ExecCalls []k8s.ExecOpts // recorded ExecPod opts (Command + body via tar reader)
+}
+
+func (f *fakePodExecutor) WaitPod(ctx context.Context, ns string, sel k8s.Selector) (string, error) {
+	if f.WaitFn != nil {
+		return f.WaitFn(ctx, ns, sel)
+	}
+	return "pod-1", nil
+}
+
+func (f *fakePodExecutor) ExecPod(ctx context.Context, ns, pod string, opts k8s.ExecOpts) error {
+	f.mu.Lock()
+	f.ExecCalls = append(f.ExecCalls, opts)
+	f.mu.Unlock()
+	if f.ExecFn != nil {
+		return f.ExecFn(ctx, ns, pod, opts)
+	}
+	return nil
+}
 
 func TestCollectFiles_RespectsExclude(t *testing.T) {
 	root := t.TempDir()
@@ -58,58 +87,36 @@ func TestSyncerIncrementalSync_TarsChangedAndDeletesRemoved(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "src"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "src", "app.js"), []byte("console.log(1)"), 0o644))
 
-	origExecStreamFn := execStreamFn
-	origExecSimpleFn := execSimpleFn
-	t.Cleanup(func() {
-		execStreamFn = origExecStreamFn
-		execSimpleFn = origExecSimpleFn
-	})
+	fake := &fakePodExecutor{}
 
-	streamCalls := 0
-	simpleCalls := 0
-	var streamCmd []string
-	var deleteCmd []string
+	s := NewSyncer(fake, "demo", map[string]string{"app": "x"}, SyncRule{From: root, To: "/app"})
+	s.podName = "pod-1"
 
-	execStreamFn = func(_ context.Context, _ *k8s.Client, _ string, cmd []string, stdin io.Reader) error {
-		streamCalls++
-		streamCmd = append([]string(nil), cmd...)
-		data, err := io.ReadAll(stdin)
-		require.NoError(t, err)
-		assert.NotEmpty(t, data)
-		return nil
-	}
-	execSimpleFn = func(_ context.Context, _ *k8s.Client, _ string, cmd []string) error {
-		simpleCalls++
-		deleteCmd = append([]string(nil), cmd...)
-		return nil
-	}
-
-	s := &Syncer{
-		client:  &k8s.Client{},
-		rule:    SyncRule{From: root, To: "/app"},
-		podName: "pod-1",
-	}
-
-	err := s.incrementalSync(context.Background(), []FileChange{
+	require.NoError(t, s.incrementalSync(context.Background(), []FileChange{
 		{Path: "src/app.js", Type: ChangeModify},
 		{Path: "src/old.js", Type: ChangeDelete},
-	})
+	}))
+
+	require.Len(t, fake.ExecCalls, 2, "one tar stream + one rm")
+	tarCall := fake.ExecCalls[0]
+	rmCall := fake.ExecCalls[1]
+	assert.Equal(t, []string{"tar", "xf", "-", "-C", "/app"}, tarCall.Command)
+	require.NotNil(t, tarCall.Stdin)
+	body, err := io.ReadAll(tarCall.Stdin)
 	require.NoError(t, err)
-	assert.Equal(t, 1, streamCalls)
-	assert.Equal(t, []string{"tar", "xf", "-", "-C", "/app"}, streamCmd)
-	assert.Equal(t, 1, simpleCalls)
-	assert.Equal(t, []string{"rm", "-rf", "/app/src/old.js"}, deleteCmd)
+	assert.NotEmpty(t, body)
+	assert.Equal(t, []string{"rm", "-rf", "/app/src/old.js"}, rmCall.Command)
 }
 
-func TestSyncerRun_ValidatesInput(t *testing.T) {
-	s := NewSyncer(nil, nil, SyncRule{From: ".", To: "/app"})
+func TestSyncerRun_RequiresExec(t *testing.T) {
+	s := NewSyncer(nil, "demo", nil, SyncRule{From: ".", To: "/app"})
 	err := s.Run(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "k8s client is required")
 }
 
-func TestSyncerRunWithReady_ValidatesInputAndStillSignalsReady(t *testing.T) {
-	s := NewSyncer(nil, nil, SyncRule{From: ".", To: "/app"})
+func TestSyncerRunWithReady_StillSignalsReadyOnValidationError(t *testing.T) {
+	s := NewSyncer(nil, "demo", nil, SyncRule{From: ".", To: "/app"})
 	readyCalled := false
 	err := s.RunWithReady(context.Background(), func() { readyCalled = true })
 	require.Error(t, err)
@@ -117,35 +124,27 @@ func TestSyncerRunWithReady_ValidatesInputAndStillSignalsReady(t *testing.T) {
 	assert.True(t, readyCalled, "ready must be called even on validation error")
 }
 
-func saveSyncSeams(t *testing.T) {
-	t.Helper()
-	origWaitForPodFn := waitForPodFn
-	origExecStreamFn := execStreamFn
-	origExecSimpleFn := execSimpleFn
-	t.Cleanup(func() {
-		waitForPodFn = origWaitForPodFn
-		execStreamFn = origExecStreamFn
-		execSimpleFn = origExecSimpleFn
-	})
+func TestSyncerRunWithReady_PropagatesWaitError(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
 
-	waitForPodFn = func(_ context.Context, _ *k8s.Client, _ map[string]string) (string, error) {
-		return "pod-1", nil
+	fake := &fakePodExecutor{
+		WaitFn: func(ctx context.Context, ns string, sel k8s.Selector) (string, error) {
+			return "", errors.New("pod missing")
+		},
 	}
-	execStreamFn = func(_ context.Context, _ *k8s.Client, _ string, _ []string, _ io.Reader) error {
-		return nil
-	}
-	execSimpleFn = func(_ context.Context, _ *k8s.Client, _ string, _ []string) error {
-		return nil
-	}
+	s := NewSyncer(fake, "demo", map[string]string{"app": "x"}, SyncRule{From: root, To: "/app", Polling: true})
+	err := s.RunWithReady(context.Background(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pod missing")
 }
 
 func TestSyncerRun_CallsInitialAndExitsOnCancel(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
 
-	saveSyncSeams(t)
-
-	s := NewSyncer(&k8s.Client{}, map[string]string{"app": "x"}, SyncRule{
+	fake := &fakePodExecutor{}
+	s := NewSyncer(fake, "demo", map[string]string{"app": "x"}, SyncRule{
 		From:    root,
 		To:      "/app",
 		Polling: true,
@@ -153,9 +152,7 @@ func TestSyncerRun_CallsInitialAndExitsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() {
-		done <- s.Run(ctx)
-	}()
+	go func() { done <- s.Run(ctx) }()
 
 	time.Sleep(200 * time.Millisecond)
 	cancel()
@@ -172,9 +169,8 @@ func TestSyncerRunWithReady_SignalsAfterInitialSync(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
 
-	saveSyncSeams(t)
-
-	s := NewSyncer(&k8s.Client{}, map[string]string{"app": "x"}, SyncRule{
+	fake := &fakePodExecutor{}
+	s := NewSyncer(fake, "demo", map[string]string{"app": "x"}, SyncRule{
 		From:    root,
 		To:      "/app",
 		Polling: true,
@@ -194,7 +190,6 @@ func TestSyncerRunWithReady_SignalsAfterInitialSync(t *testing.T) {
 	}
 
 	cancel()
-
 	select {
 	case err := <-done:
 		require.NoError(t, err)
@@ -207,9 +202,8 @@ func TestSyncerRunWithReady_NilReadyDoesNotPanic(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
 
-	saveSyncSeams(t)
-
-	s := NewSyncer(&k8s.Client{}, map[string]string{"app": "x"}, SyncRule{
+	fake := &fakePodExecutor{}
+	s := NewSyncer(fake, "demo", map[string]string{"app": "x"}, SyncRule{
 		From:    root,
 		To:      "/app",
 		Polling: true,
@@ -217,9 +211,7 @@ func TestSyncerRunWithReady_NilReadyDoesNotPanic(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() {
-		done <- s.RunWithReady(ctx, nil)
-	}()
+	go func() { done <- s.RunWithReady(ctx, nil) }()
 
 	time.Sleep(200 * time.Millisecond)
 	cancel()
@@ -231,3 +223,6 @@ func TestSyncerRunWithReady_NilReadyDoesNotPanic(t *testing.T) {
 		t.Fatal("syncer run did not exit after context cancel")
 	}
 }
+
+// Compile-time check fakePodExecutor satisfies the port.
+var _ k8s.PodExecutor = (*fakePodExecutor)(nil)

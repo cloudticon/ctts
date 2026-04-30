@@ -45,12 +45,8 @@ func containerProblem(pod *corev1.Pod) string {
 	return ""
 }
 
-// WaitForPod waits until a healthy running pod matching selector is available.
-func WaitForPod(ctx context.Context, c *Client, selector map[string]string) (string, error) {
-	return waitForPod(ctx, c, selector)
-}
-
-func waitForPod(ctx context.Context, c *Client, selector map[string]string) (string, error) {
+// waitForPod blocks until a healthy running pod matching selector is available.
+func waitForPod(ctx context.Context, c *client, selector map[string]string) (string, error) {
 	if c.CoreV1 == nil {
 		return "", errors.New("kubernetes core/v1 client is required")
 	}
@@ -129,7 +125,7 @@ func firstRunningPodName(pods []corev1.Pod) (name, problem string) {
 	return name, problem
 }
 
-func logContainerProblem(ctx context.Context, c *Client, podName, problem string) {
+func logContainerProblem(ctx context.Context, c *client, podName, problem string) {
 	waitLog.Printf("%s pod %q: %s, fetching crash logs...", color.YellowString("[wait]"), podName, problem)
 	if logs := fetchPreviousLogsFn(ctx, c, podName); logs != "" {
 		waitLog.Printf("%s previous logs for %q:\n%s", color.YellowString("[wait]"), podName, logs)
@@ -137,7 +133,7 @@ func logContainerProblem(ctx context.Context, c *Client, podName, problem string
 	waitLog.Printf("%s retrying in 5s...", color.YellowString("[wait]"))
 }
 
-func fetchPreviousLogs(ctx context.Context, c *Client, podName string) string {
+func fetchPreviousLogs(ctx context.Context, c *client, podName string) string {
 	tailLines := int64(20)
 	req := c.CoreV1.Pods(c.Namespace).GetLogs(podName, &corev1.PodLogOptions{
 		Previous:  true,
@@ -157,11 +153,11 @@ func fetchPreviousLogs(ctx context.Context, c *Client, podName string) string {
 
 var podHealthPollInterval = 2 * time.Second
 
-// WatchPodHealth polls a specific pod's status at short intervals and returns
+// watchPodHealth polls a specific pod's status at short intervals and returns
 // an error as soon as the pod is terminating, no longer running, or gone. This
 // allows the caller to react to pod deletion faster than waiting for a broken
 // exec/port-forward TCP connection to time out.
-func WatchPodHealth(ctx context.Context, c *Client, podName string) error {
+func watchPodHealth(ctx context.Context, c *client, podName string) error {
 	if c.CoreV1 == nil {
 		return errors.New("kubernetes core/v1 client is required")
 	}

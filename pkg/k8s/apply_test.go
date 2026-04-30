@@ -16,7 +16,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-func newTestClient(t *testing.T, apiResources []*metav1.APIResourceList) (*Client, *dynamicfake.FakeDynamicClient) {
+func newTestClient(t *testing.T, apiResources []*metav1.APIResourceList) (*client, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 
 	scheme := runtime.NewScheme()
@@ -34,7 +34,7 @@ func newTestClient(t *testing.T, apiResources []*metav1.APIResourceList) (*Clien
 	fakeClient := fake.NewSimpleClientset()
 	fakeClient.Fake.Resources = apiResources
 
-	c := &Client{
+	c := &client{
 		CoreV1:    fakeClient.CoreV1(),
 		Discovery: fakeClient.Discovery(),
 		Dynamic:   dynClient,
@@ -77,7 +77,7 @@ func TestToUnstructured_MinimalResource(t *testing.T) {
 }
 
 func TestResolveResourceInfo_Cached(t *testing.T) {
-	c := &Client{
+	c := &client{
 		gvrCache: map[string]*resourceInfo{
 			"apps/v1/Deployment": {
 				GVR:        schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"},
@@ -113,7 +113,7 @@ func TestResolveResourceInfo_Discovery(t *testing.T) {
 		},
 	}
 
-	c := &Client{
+	c := &client{
 		Discovery: fakeClient.Discovery(),
 		gvrCache:  make(map[string]*resourceInfo),
 	}
@@ -144,7 +144,7 @@ func TestResolveResourceInfo_KindNotFound(t *testing.T) {
 		},
 	}
 
-	c := &Client{
+	c := &client{
 		Discovery: fakeClient.Discovery(),
 		gvrCache:  make(map[string]*resourceInfo),
 	}
@@ -177,7 +177,7 @@ func TestApply_NamespacedResource(t *testing.T) {
 		},
 	}
 
-	err := c.Apply(context.Background(), resources)
+	err := c.apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	actions := dynClient.Actions()
@@ -205,7 +205,7 @@ func TestApply_FallsBackToClientNamespace(t *testing.T) {
 		},
 	}
 
-	err := c.Apply(context.Background(), resources)
+	err := c.apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	actions := dynClient.Actions()
@@ -231,7 +231,7 @@ func TestApply_ClusterScopedResource(t *testing.T) {
 		},
 	}
 
-	err := c.Apply(context.Background(), resources)
+	err := c.apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	actions := dynClient.Actions()
@@ -265,7 +265,7 @@ func TestApply_MultipleResources(t *testing.T) {
 		},
 	}
 
-	err := c.Apply(context.Background(), resources)
+	err := c.apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	actions := dynClient.Actions()
@@ -273,11 +273,11 @@ func TestApply_MultipleResources(t *testing.T) {
 }
 
 func TestApply_EmptyResources(t *testing.T) {
-	c := &Client{
+	c := &client{
 		gvrCache: make(map[string]*resourceInfo),
 	}
 
-	err := c.Apply(context.Background(), []Resource{})
+	err := c.apply(context.Background(), []Resource{})
 	require.NoError(t, err)
 }
 
@@ -306,7 +306,7 @@ func TestApply_MixedScopes(t *testing.T) {
 		},
 	}
 
-	err := c.Apply(context.Background(), resources)
+	err := c.apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	actions := dynClient.Actions()

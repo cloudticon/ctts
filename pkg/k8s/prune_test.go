@@ -7,7 +7,7 @@ import (
 )
 
 func TestComputeOrphaned_EmptyOldRefs(t *testing.T) {
-	orphaned := ComputeOrphaned(nil, []ResourceRef{
+	orphaned := computeOrphaned(nil, []ResourceRef{
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "prod", Name: "cfg"},
 	})
 
@@ -24,7 +24,7 @@ func TestComputeOrphaned_NoOrphans(t *testing.T) {
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "prod", Name: "cfg"},
 	}
 
-	orphaned := ComputeOrphaned(oldRefs, newRefs)
+	orphaned := computeOrphaned(oldRefs, newRefs)
 	assert.Empty(t, orphaned)
 }
 
@@ -38,7 +38,7 @@ func TestComputeOrphaned_ReturnsRemovedResources(t *testing.T) {
 		{APIVersion: "apps/v1", Kind: "Deployment", Namespace: "prod", Name: "web"},
 	}
 
-	orphaned := ComputeOrphaned(oldRefs, newRefs)
+	orphaned := computeOrphaned(oldRefs, newRefs)
 	assert.Equal(t, []ResourceRef{
 		{APIVersion: "v1", Kind: "Service", Namespace: "prod", Name: "web-svc"},
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "prod", Name: "cfg"},
@@ -54,7 +54,7 @@ func TestComputeOrphaned_SupportsClusterScopedResources(t *testing.T) {
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "prod", Name: "cfg"},
 	}
 
-	orphaned := ComputeOrphaned(oldRefs, newRefs)
+	orphaned := computeOrphaned(oldRefs, newRefs)
 	assert.Equal(t, []ResourceRef{
 		{APIVersion: "v1", Kind: "Namespace", Name: "prod"},
 	}, orphaned)
@@ -66,7 +66,7 @@ func TestComputeOrphaned_DeduplicatesOldRefs(t *testing.T) {
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "prod", Name: "cfg"},
 	}
 
-	orphaned := ComputeOrphaned(oldRefs, nil)
+	orphaned := computeOrphaned(oldRefs, nil)
 	assert.Equal(t, []ResourceRef{
 		{APIVersion: "v1", Kind: "ConfigMap", Namespace: "prod", Name: "cfg"},
 	}, orphaned)

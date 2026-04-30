@@ -159,7 +159,7 @@ func TestWaitForPod_ReturnsRunningPodFromList(t *testing.T) {
 			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
 		},
 	)
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
+	client := newClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 
 	pod, err := waitForPod(context.Background(), client, map[string]string{"app": "web"})
 	require.NoError(t, err)
@@ -174,7 +174,7 @@ func TestWaitForPod_WaitsForRunningPodOnWatch(t *testing.T) {
 		return true, w, nil
 	})
 
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
+	client := newClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -214,7 +214,7 @@ func TestWaitForPod_CrashLoopBackOffRetryThenHealthy(t *testing.T) {
 		retrySleep = origSleep
 	})
 
-	fetchPreviousLogsFn = func(_ context.Context, _ *Client, _ string) string {
+	fetchPreviousLogsFn = func(_ context.Context, _ *client, _ string) string {
 		return "Error: something crashed"
 	}
 	retrySleep = func(_ context.Context) error { return nil }
@@ -252,7 +252,7 @@ func TestWaitForPod_CrashLoopBackOffRetryThenHealthy(t *testing.T) {
 		return true, &corev1.PodList{Items: []corev1.Pod{crashPod}}, nil
 	})
 
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
+	client := newClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -353,7 +353,7 @@ func TestFirstRunningPodName_SkipsTerminatingPod(t *testing.T) {
 	assert.Empty(t, problem)
 }
 
-// --- WatchPodHealth ---
+// --- watchPodHealth ---
 
 func TestWatchPodHealth_ReturnsWhenPodDeleted(t *testing.T) {
 	origInterval := podHealthPollInterval
@@ -380,11 +380,11 @@ func TestWatchPodHealth_ReturnsWhenPodDeleted(t *testing.T) {
 		return true, healthyPod.DeepCopy(), nil
 	})
 
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
+	client := newClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err := WatchPodHealth(ctx, client, "web-1")
+	err := watchPodHealth(ctx, client, "web-1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is gone")
 	assert.GreaterOrEqual(t, getCalls, 3)
@@ -419,11 +419,11 @@ func TestWatchPodHealth_ReturnsWhenPodTerminating(t *testing.T) {
 		return true, healthyPod.DeepCopy(), nil
 	})
 
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
+	client := newClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err := WatchPodHealth(ctx, client, "web-1")
+	err := watchPodHealth(ctx, client, "web-1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is terminating")
 }
@@ -444,12 +444,12 @@ func TestWatchPodHealth_ReturnsOnContextCancel(t *testing.T) {
 	}
 
 	clientset := fake.NewSimpleClientset(healthyPod)
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
+	client := newClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := WatchPodHealth(ctx, client, "web-1")
+	err := watchPodHealth(ctx, client, "web-1")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -465,11 +465,11 @@ func TestWatchPodHealth_ReturnsWhenPodNotRunning(t *testing.T) {
 	}
 
 	clientset := fake.NewSimpleClientset(failedPod)
-	client := NewClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
+	client := newClientFromInterfaces(clientset.CoreV1(), clientset.Discovery(), nil, "dev-ns")
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	err := WatchPodHealth(ctx, client, "web-1")
+	err := watchPodHealth(ctx, client, "web-1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is no longer running")
 }

@@ -17,7 +17,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-func newInventoryTestClient(t *testing.T) (*Client, *fake.Clientset) {
+func newInventoryTestClient(t *testing.T) (*client, *fake.Clientset) {
 	t.Helper()
 
 	fakeClient := fake.NewSimpleClientset()
@@ -49,7 +49,7 @@ func newInventoryTestClient(t *testing.T) (*Client, *fake.Clientset) {
 		return true, &cm, nil
 	})
 
-	return &Client{
+	return &client{
 		CoreV1:    fakeClient.CoreV1(),
 		Namespace: "default",
 	}, fakeClient
@@ -78,7 +78,7 @@ func TestSaveInventory(t *testing.T) {
 		},
 	}
 
-	err := SaveInventory(ctx, client, "prod", "my-release", resources)
+	err := saveInventory(ctx, client, "prod", "my-release", resources)
 	require.NoError(t, err)
 
 	actions := fakeClient.Actions()
@@ -115,7 +115,7 @@ func TestSaveInventory_UsesClientNamespaceWhenEmptyArg(t *testing.T) {
 	client, _ := newInventoryTestClient(t)
 	client.Namespace = "fallback-ns"
 
-	err := SaveInventory(context.Background(), client, "", "dev", []Resource{
+	err := saveInventory(context.Background(), client, "", "dev", []Resource{
 		{
 			"apiVersion": "v1",
 			"kind":       "ConfigMap",
@@ -146,7 +146,7 @@ func TestLoadInventory(t *testing.T) {
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	refs, err := LoadInventory(ctx, client, "prod", "my-release")
+	refs, err := loadInventory(ctx, client, "prod", "my-release")
 	require.NoError(t, err)
 	assert.Equal(t, []ResourceRef{
 		{APIVersion: "apps/v1", Kind: "Deployment", Name: "web", Namespace: "prod"},
@@ -156,7 +156,7 @@ func TestLoadInventory(t *testing.T) {
 func TestLoadInventory_NotFoundReturnsEmpty(t *testing.T) {
 	client, _ := newInventoryTestClient(t)
 
-	refs, err := LoadInventory(context.Background(), client, "prod", "missing")
+	refs, err := loadInventory(context.Background(), client, "prod", "missing")
 	require.NoError(t, err)
 	assert.Empty(t, refs)
 }
@@ -173,7 +173,7 @@ func TestDeleteInventory(t *testing.T) {
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	require.NoError(t, DeleteInventory(ctx, client, "prod", "my-release"))
+	require.NoError(t, deleteInventory(ctx, client, "prod", "my-release"))
 
 	_, err = client.CoreV1.ConfigMaps("prod").Get(ctx, "ct-inventory-my-release", metav1.GetOptions{})
 	require.Error(t, err)
@@ -182,7 +182,7 @@ func TestDeleteInventory(t *testing.T) {
 
 func TestDeleteInventory_IgnoresNotFound(t *testing.T) {
 	client, _ := newInventoryTestClient(t)
-	require.NoError(t, DeleteInventory(context.Background(), client, "prod", "missing"))
+	require.NoError(t, deleteInventory(context.Background(), client, "prod", "missing"))
 }
 
 func TestListReleases_Namespace(t *testing.T) {
@@ -194,12 +194,12 @@ func TestListReleases_Namespace(t *testing.T) {
 			Name:      "ct-inventory-my-release",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "my-release",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "my-release",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[{"kind":"Deployment"},{"kind":"Service"}]`,
+			inventoryDataKey: `[{"kind":"Deployment"},{"kind":"Service"}]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -217,16 +217,16 @@ func TestListReleases_Namespace(t *testing.T) {
 			Name:      "ignored-no-instance",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
+				managedByLabelKey: "ct",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[]`,
+			inventoryDataKey: `[]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	releases, err := ListReleases(ctx, client, "prod", false)
+	releases, err := listReleases(ctx, client, "prod", false)
 	require.NoError(t, err)
 	assert.Equal(t, []ReleaseInfo{
 		{Name: "my-release", Namespace: "prod", Resources: 2},
@@ -242,12 +242,12 @@ func TestListReleases_AllNamespaces(t *testing.T) {
 			Name:      "ct-inventory-backend",
 			Namespace: "staging",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "backend",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "backend",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[{"kind":"Deployment"}]`,
+			inventoryDataKey: `[{"kind":"Deployment"}]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -257,17 +257,17 @@ func TestListReleases_AllNamespaces(t *testing.T) {
 			Name:      "ct-inventory-api",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "api",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "api",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `[{"kind":"Deployment"},{"kind":"Service"},{"kind":"ConfigMap"}]`,
+			inventoryDataKey: `[{"kind":"Deployment"},{"kind":"Service"},{"kind":"ConfigMap"}]`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	releases, err := ListReleases(ctx, client, "", true)
+	releases, err := listReleases(ctx, client, "", true)
 	require.NoError(t, err)
 	assert.Equal(t, []ReleaseInfo{
 		{Name: "api", Namespace: "prod", Resources: 3},
@@ -284,23 +284,23 @@ func TestListReleases_ReturnsErrorOnInvalidResourcesJSON(t *testing.T) {
 			Name:      "ct-inventory-broken",
 			Namespace: "prod",
 			Labels: map[string]string{
-				inventoryManagedByLabelKey: "ct",
-				inventoryInstanceLabelKey:  "broken",
+				managedByLabelKey: "ct",
+				instanceLabelKey:  "broken",
 			},
 		},
 		Data: map[string]string{
-			inventoryResourcesDataKey: `{`,
+			inventoryDataKey: `{`,
 		},
 	}, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	_, err = ListReleases(ctx, client, "prod", false)
+	_, err = listReleases(ctx, client, "prod", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unmarshaling inventory resources")
 }
 
 func TestResourcesToRefs_Validation(t *testing.T) {
-	_, err := ResourcesToRefs([]Resource{
+	_, err := resourcesToRefs([]Resource{
 		{
 			"apiVersion": "v1",
 			"kind":       "ConfigMap",

@@ -17,7 +17,7 @@ import (
 
 type Resource = map[string]interface{}
 
-func (c *Client) Apply(ctx context.Context, resources []Resource) error {
+func (c *client) apply(ctx context.Context, resources []Resource) error {
 	for _, res := range resources {
 		if err := c.applyOne(ctx, res); err != nil {
 			return err
@@ -26,7 +26,7 @@ func (c *Client) Apply(ctx context.Context, resources []Resource) error {
 	return nil
 }
 
-func (c *Client) applyOne(ctx context.Context, res Resource) error {
+func (c *client) applyOne(ctx context.Context, res Resource) error {
 	obj := toUnstructured(res)
 
 	info, err := c.resolveResourceInfo(obj.GetAPIVersion(), obj.GetKind())
@@ -67,7 +67,7 @@ func toUnstructured(res Resource) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: res}
 }
 
-func (c *Client) resolveResourceInfo(apiVersion, kind string) (*resourceInfo, error) {
+func (c *client) resolveResourceInfo(apiVersion, kind string) (*resourceInfo, error) {
 	key := apiVersion + "/" + kind
 	if info, ok := c.gvrCache[key]; ok {
 		return info, nil

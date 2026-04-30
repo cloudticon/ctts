@@ -28,8 +28,8 @@ var (
 	sleepForLogReconnectsFn  = time.Sleep
 )
 
-// StreamLogs streams pod logs for a selected target and reconnects on pod/log stream churn.
-func StreamLogs(ctx context.Context, c *Client, targetName string, selector map[string]string, w io.Writer) error {
+// streamLogs streams pod logs for a selected target and reconnects on pod/log stream churn.
+func streamLogs(ctx context.Context, c *client, targetName string, selector map[string]string, w io.Writer) error {
 	if c == nil {
 		return errors.New("client is required")
 	}
@@ -78,7 +78,7 @@ func StreamLogs(ctx context.Context, c *Client, targetName string, selector map[
 	}
 }
 
-func streamPodLogs(ctx context.Context, c *Client, pod string) (io.ReadCloser, error) {
+func streamPodLogs(ctx context.Context, c *client, pod string) (io.ReadCloser, error) {
 	if c.CoreV1 == nil {
 		return nil, errors.New("kubernetes core/v1 client is required")
 	}
